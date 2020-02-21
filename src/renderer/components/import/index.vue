@@ -16,7 +16,7 @@
           @drop="dropHandler"
         >
           <div class="img-wrapper">
-            <img :src="`.${importIcon.url}`" alt="import file">
+            <img :src="`${importIcon.url}`" alt="import file">
           </div>
           <div>Import or Open</div>
           <p> Drop here to get you stuff into Mark Text</p>
@@ -69,7 +69,6 @@ export default {
       if (e.dataTransfer.files) {
         const fileList = []
         for (const file of e.dataTransfer.files) {
-          // console.log(file)
           fileList.push(file.path)
         }
         ipcRenderer.send('AGANI::window::drop', fileList)
@@ -82,19 +81,20 @@ export default {
 <style scoped>
 .drop-container {
   border-radius: 5px;
-  border: 2px dashed #9c9c9c;
+  color: var(--sideBarColor);
+  border: 1px dashed var(--sideBarTextColor);
   & div,
   & p {
     text-align: center;
   }
   &.active {
-    border: 2px dashed #409eff;
-    background-color: rgba(32, 159, 255, 0.06);
+    border: 1px dashed var(--themeColor);
+    background-color: var(--itemBgColor);
   }
 }
 .img-wrapper {
-  width: 70px;
-  height: 100px;
+  width: 50px;
+  height: 70px;
   margin: 40px auto 0 auto;
   & img {
     width: 100%;
@@ -108,13 +108,12 @@ export default {
   & div {
     width: 70px;
     height: 70px;
-    border: 1px solid #eee;
+    border: 1px solid var(--sideBarTextColor);
     border-radius: 3px;
     text-align: center;
     font-size: 18px;
     line-height: 70px;
-    color: #999;
+    color: var(--sideBarTitleColor);
   }
 }
 </style>
-

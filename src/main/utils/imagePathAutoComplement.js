@@ -1,8 +1,12 @@
 import fs from 'fs'
 import path from 'path'
 import { filter } from 'fuzzaldrin'
-import { isDirectory, isFile, log } from './index'
-import { IMAGE_EXTENSIONS, BLACK_LIST } from '../config'
+import log from 'electron-log'
+import { isDirectory, isFile } from 'common/filesystem'
+import { IMAGE_EXTENSIONS } from 'common/filesystem/paths'
+import { BLACK_LIST } from '../config'
+
+// TODO(need::refactor): Refactor this file. Just return an array of directories and files without caching and watching?
 
 // TODO: rebuild cache @jocs
 const IMAGE_PATH = new Map()
@@ -42,7 +46,7 @@ const filesHandler = (files, directory, key) => {
 
 const rebuild = (directory) => {
   fs.readdir(directory, (err, files) => {
-    if (err) log(err)
+    if (err) log.error(err)
     else {
       filesHandler(files, directory)
     }
@@ -67,8 +71,9 @@ export const searchFilesAndDir = (directory, key) => {
   } else {
     return new Promise((resolve, reject) => {
       fs.readdir(directory, (err, files) => {
-        if (err) reject(err)
-        else {
+        if (err) {
+          reject(err)
+        } else {
           result = filesHandler(files, directory, key)
           watchDirectory(directory)
           resolve(result)

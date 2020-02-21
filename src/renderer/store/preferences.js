@@ -1,28 +1,75 @@
 import { ipcRenderer } from 'electron'
-import { getOptionsFromState } from './help'
 
 // user preference
 const state = {
-  theme: 'light',
-  editorFontFamily: 'Open Sans',
-  fontSize: '16px',
-  codeFontFamily: 'DejaVu Sans Mono',
-  codeFontSize: '14px',
-  lineHeight: 1.6,
-  lightColor: '#303133', // color in light theme
-  darkColor: 'rgb(217, 217, 217)', // color in dark theme
   autoSave: false,
-  preferLooseListItem: true, // prefer loose or tight list items
-  bulletListMarker: '-',
+  autoSaveDelay: 5000,
+  titleBarStyle: 'custom',
+  openFilesInNewWindow: false,
+  openFolderInNewWindow: false,
+  hideScrollbar: false,
+  aidou: true,
+  fileSortBy: 'created',
+  startUpAction: 'lastState',
+  defaultDirectoryToOpen: '',
+  language: 'en',
+
+  editorFontFamily: 'Open Sans',
+  fontSize: 16,
+  lineHeight: 1.6,
+  codeFontSize: 14,
+  codeFontFamily: 'DejaVu Sans Mono',
+  editorLineWidth: '',
+
   autoPairBracket: true,
   autoPairMarkdownSyntax: true,
   autoPairQuote: true,
-  tabSize: 4,
+  endOfLine: 'default',
+  textDirection: 'ltr',
   hideQuickInsertHint: false,
-  // edit modes (they are not in preference.md, but still put them here)
+  imageInsertAction: 'folder',
+
+  preferLooseListItem: true,
+  bulletListMarker: '-',
+  orderListDelimiter: '.',
+  preferHeadingStyle: 'atx',
+  tabSize: 4,
+  listIndentation: 1,
+
+  theme: 'light',
+
+  // Default values that are overwritten with the entries below.
+  sideBarVisibility: false,
+  tabBarVisibility: false,
+  sourceCodeModeEnabled: false,
+
+  searchExclusions: [],
+  searchMaxFileSize: '',
+  searchIncludeHidden: false,
+  searchNoIgnore: false,
+  searchFollowSymlinks: true,
+
+  watcherUsePolling: false,
+
+  // --------------------------------------------------------------------------
+
+  // Edit modes of the current window (not part of persistent settings)
   typewriter: false, // typewriter mode
   focus: false, // focus mode
-  sourceCode: false // source code mode
+  sourceCode: false, // source code mode
+
+  // user configration
+  imageFolderPath: '',
+  webImages: [],
+  cloudImages: [],
+  currentUploader: 'none',
+  githubToken: '',
+  imageBed: {
+    github: {
+      owner: '',
+      repo: ''
+    }
+  }
 }
 
 const getters = {}
@@ -42,20 +89,11 @@ const mutations = {
 
 const actions = {
   ASK_FOR_USER_PREFERENCE ({ commit, state, rootState }) {
-    ipcRenderer.send('AGANI::ask-for-user-preference')
-    ipcRenderer.on('AGANI::user-preference', (e, preference) => {
-      const { autoSave } = preference
-      commit('SET_USER_PREFERENCE', preference)
+    ipcRenderer.send('mt::ask-for-user-preference')
+    ipcRenderer.send('mt::ask-for-user-data')
 
-      // handle autoSave @todo
-      if (autoSave) {
-        const { pathname, markdown } = state
-        const options = getOptionsFromState(rootState.editor)
-        if (autoSave && pathname) {
-          commit('SET_SAVE_STATUS', true)
-          ipcRenderer.send('AGANI::response-file-save', { pathname, markdown, options })
-        }
-      }
+    ipcRenderer.on('AGANI::user-preference', (e, preferences) => {
+      commit('SET_USER_PREFERENCE', preferences)
     })
   },
 
@@ -71,10 +109,21 @@ const actions = {
     })
   },
 
-  CHANGE_FONT ({ commit }, { type, value }) {
-    commit('SET_USER_PREFERENCE', { [type]: value })
-    // save to preference.md
-    ipcRenderer.send('AGANI::set-user-preference', { [type]: value })
+  SET_SINGLE_PREFERENCE ({ commit }, { type, value }) {
+    // save to electron-store
+    ipcRenderer.send('mt::set-user-preference', { [type]: value })
+  },
+
+  SET_USER_DATA ({ commit }, { type, value }) {
+    ipcRenderer.send('mt::set-user-data', { [type]: value })
+  },
+
+  SET_IMAGE_FOLDER_PATH ({ commit }) {
+    ipcRenderer.send('mt::ask-for-modify-image-folder-path')
+  },
+
+  SELECT_DEFAULT_DIRECTORY_TO_OPEN ({ commit }) {
+    ipcRenderer.send('mt::select-default-directory-to-open')
   }
 }
 

@@ -2,32 +2,30 @@
   <div
     v-show="showSideBar"
     class="side-bar"
-    :class="[theme]"
     ref="sideBar"
-    :style="{ 'width': `${finalSideBarWidth}px` }"
+    :style="[ !rightColumn ? { 'min-width': '45px' } : {}, { 'width': `${finalSideBarWidth}px` } ]"
   >
-    <div class="title-bar-bg" :class="[theme]"></div>
     <div class="left-column">
       <ul>
         <li
-          v-for="(icon, index) of sideBarIcons"
+          v-for="(c, index) of sideBarIcons"
           :key="index"
-          @click="handleLeftIconClick(icon.name)"
-          :class="{ 'active': icon.name === rightColumn }"
+          @click="handleLeftIconClick(c.name)"
+          :class="{ 'active': c.name === rightColumn }"
         >
-          <svg class="icon" aria-hidden="true">
-            <use :xlink:href="'#' + icon.icon"></use>
+          <svg :viewBox="c.icon.viewBox">
+            <use :xlink:href="c.icon.url"></use>
           </svg>
         </li>
       </ul>
       <ul class="bottom">
         <li
-          v-for="(icon, index) of sideBarBottomIcons"
+          v-for="(c, index) of sideBarBottomIcons"
           :key="index"
-          @click="handleLeftBottomClick(icon.name)"
+          @click="handleLeftBottomClick(c.name)"
         >
-          <svg class="icon" aria-hidden="true">
-            <use :xlink:href="'#' + icon.icon"></use>
+          <svg :viewBox="c.icon.viewBox">
+            <use :xlink:href="c.icon.url"></use>
           </svg>
         </li>
       </ul>
@@ -35,7 +33,6 @@
     <div class="right-column" v-show="rightColumn">
       <tree
         :project-tree="projectTree"
-        :file-list="fileList"
         :opened-files="openedFiles"
         :tabs="tabs"
         v-if="rightColumn === 'files'"
@@ -47,122 +44,114 @@
         v-else-if="rightColumn === 'toc'"
       ></toc>
     </div>
-    <div class="drag-bar" ref="dragBar"></div>
+    <div class="drag-bar" ref="dragBar" v-show="rightColumn"></div>
   </div>
 </template>
 
 <script>
-  import { sideBarIcons, sideBarBottomIcons } from './help'
-  import bus from '../../bus'
-  import Tree from './tree.vue'
-  import SideBarSearch from './search.vue'
-  import Toc from './toc.vue'
-  import { mapState, mapGetters } from 'vuex'
+import { sideBarIcons, sideBarBottomIcons } from './help'
+import Tree from './tree.vue'
+import SideBarSearch from './search.vue'
+import Toc from './toc.vue'
+import { mapState } from 'vuex'
 
-  export default {
-    data () {
-      this.sideBarIcons = sideBarIcons
-      this.sideBarBottomIcons = sideBarBottomIcons
-      return {
-        openedFiles: [],
-        sideBarViewWidth: 280
-      }
-    },
-    components: {
-      Tree,
-      SideBarSearch,
-      Toc
-    },
-    computed: {
-      ...mapState({
-        'theme': state => state.preferences.theme,
-        'rightColumn': state => state.layout.rightColumn,
-        'showSideBar': state => state.layout.showSideBar,
-        'projectTree': state => state.project.projectTree,
-        'sideBarWidth': state => state.project.sideBarWidth,
-        'tabs': state => state.editor.tabs
-      }),
-      ...mapGetters(['fileList']),
-      finalSideBarWidth () {
-        const { showSideBar, rightColumn, sideBarViewWidth } = this
-        let width = sideBarViewWidth
-        if (rightColumn === '') width = 45
-        if (!showSideBar) width -= 45
-        return width
-      }
-    },
-    created () {
-      this.$nextTick(() => {
-        const dragBar = this.$refs.dragBar
-        let startX = 0
-        let sideBarWidth = +this.sideBarWidth
-        let startWidth = sideBarWidth
+export default {
+  data () {
+    this.sideBarIcons = sideBarIcons
+    this.sideBarBottomIcons = sideBarBottomIcons
+    return {
+      openedFiles: [],
+      sideBarViewWidth: 280
+    }
+  },
+  components: {
+    Tree,
+    SideBarSearch,
+    Toc
+  },
+  computed: {
+    ...mapState({
+      rightColumn: state => state.layout.rightColumn,
+      showSideBar: state => state.layout.showSideBar,
+      projectTree: state => state.project.projectTree,
+      sideBarWidth: state => state.layout.sideBarWidth,
+      tabs: state => state.editor.tabs
+    }),
+    finalSideBarWidth () {
+      const { showSideBar, rightColumn, sideBarViewWidth } = this
+      let width = sideBarViewWidth
+      if (rightColumn === '') width = 45
+      if (!showSideBar) width -= 45
+      return width
+    }
+  },
+  created () {
+    this.$nextTick(() => {
+      const dragBar = this.$refs.dragBar
+      let startX = 0
+      let sideBarWidth = +this.sideBarWidth
+      let startWidth = sideBarWidth
 
+      this.sideBarViewWidth = sideBarWidth
+
+      const mouseUpHandler = event => {
+        document.removeEventListener('mousemove', mouseMoveHandler, false)
+        document.removeEventListener('mouseup', mouseUpHandler, false)
+        this.$store.dispatch('CHANGE_SIDE_BAR_WIDTH', sideBarWidth < 220 ? 220 : sideBarWidth)
+      }
+
+      const mouseMoveHandler = event => {
+        const offset = event.clientX - startX
+        sideBarWidth = startWidth + offset
         this.sideBarViewWidth = sideBarWidth
+      }
 
-        const mouseUpHandler = event => {
-          document.removeEventListener('mousemove', mouseMoveHandler, false)
-          document.removeEventListener('mouseup', mouseUpHandler, false)
-          this.$store.dispatch('CHANGE_SIDE_BAR_WIDTH', sideBarWidth)
-        }
+      const mouseDownHandler = event => {
+        startX = event.clientX
+        startWidth = +this.sideBarWidth
+        document.addEventListener('mousemove', mouseMoveHandler, false)
+        document.addEventListener('mouseup', mouseUpHandler, false)
+      }
 
-        const mouseMoveHandler = event => {
-          const offset = event.clientX - startX
-          sideBarWidth = startWidth + offset
-          this.sideBarViewWidth = sideBarWidth
-        }
-
-        const mouseDownHandler = event => {
-          startX = event.clientX
-          startWidth = +this.sideBarWidth
-          document.addEventListener('mousemove', mouseMoveHandler, false)
-          document.addEventListener('mouseup', mouseUpHandler, false)
-        }
-
-        dragBar.addEventListener('mousedown', mouseDownHandler, false)
-      })
+      dragBar.addEventListener('mousedown', mouseDownHandler, false)
+    })
+  },
+  methods: {
+    handleLeftIconClick (name) {
+      if (this.rightColumn === name) {
+        this.$store.commit('SET_LAYOUT', { rightColumn: '' })
+      } else {
+        this.$store.commit('SET_LAYOUT', { rightColumn: name })
+        this.sideBarViewWidth = +this.sideBarWidth
+      }
     },
-    methods: {
-      handleLeftIconClick (name) {
-        if (this.rightColumn === name) {
-          this.$store.commit('SET_LAYOUT', { rightColumn: '' })
-        } else {
-          this.$store.commit('SET_LAYOUT', { rightColumn: name })
-          this.sideBarViewWidth = +this.sideBarWidth
-        }
-      },
-      handleLeftBottomClick (name) {
-        if (name === 'twitter') {
-          bus.$emit('tweetDialog')
-        }
+    handleLeftBottomClick (name) {
+      if (name === 'setting') {
+        this.$store.dispatch('OPEN_SETTING_WINDOW')
       }
     }
   }
+}
 </script>
 
 <style scoped>
   .side-bar {
     display: flex;
-    height: calc(100vh - var(--titleBarHeight));
+    flex-shrink: 0;
+    flex-grow: 0;
+    width: 280px;
+    height: 100vh;
+    min-width: 220px;
     position: relative;
-    color: var(--secondaryColor);
-  }
-  .side-bar.light,
-  .title-bar-bg.light {
-    background: var(--lightBgHighlightColor);
-    border-right: 1px solid rgb(242, 242, 242);
-  }
-  .side-bar.dark,
-  .title-bar-bg.dark {
-    background: var(--darkBgHighlightColor);
-  }
-
-  .title-bar-bg {
-    position: absolute;
-    top: calc(-1 * var(--titleBarHeight));
-    left: 0;
-    height: var(--titleBarHeight);
-    width: 100%;
+    color: var(--sideBarColor);
+    user-select: none;
+    background: var(--sideBarBgColor);
+    border-right: 1px solid var(--itemBgColor);
+    & .left-column {
+      & svg {
+        fill: var(--iconColor);
+      }
+    }
   }
 
   .left-column {
@@ -171,6 +160,8 @@
     display: flex;
     flex-direction: column;
     justify-content: space-between;
+    padding-top: 40px;
+    box-sizing: border-box;
     & > ul {
       opacity: 1;
     }
@@ -194,16 +185,12 @@
       & > svg {
         width: 18px;
         height: 18px;
+        fill: var(--sideBarIconColor);
         opacity: 1;
-        color: var(--secondaryColor);
         transition: transform .25s ease-in-out;
       }
-      &:hover > svg {
-        color: var(--primary);
-        transform: scale(1.2);
-      }
       &.active > svg {
-        color: var(--primary);
+        fill: var(--themeColor);
       }
     }
   }
@@ -222,10 +209,10 @@
     right: 0;
     bottom: 0;
     height: 100%;
-    width: 2px;
+    width: 3px;
     cursor: col-resize;
     &:hover {
-      background: var(--secondaryColor);
+      border-right: 2px solid var(--highlightThemeColor);
     }
   }
 </style>

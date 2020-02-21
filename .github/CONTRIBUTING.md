@@ -1,6 +1,6 @@
 # Mark Text Contributing Guide
 
-Hi, I'm really excited that you are interested in contributing to Mark Text :tada:. Before submitting your contribution though, please make sure to take a moment and read through the following guidelines.
+We are really excited that you are interested in contributing to Mark Text :tada:. Before submitting your contribution though, please make sure to take a moment and read through the following guidelines.
 
 - [Code of Conduct](https://github.com/marktext/marktext/blob/master/.github/CODE_OF_CONDUCT.md)
 - [Issue Reporting Guidelines](#issue-reporting-guidelines)
@@ -17,7 +17,7 @@ Please search for similar issues before opening an issue and always follow the [
 
 ## Pull Request Guidelines
 
-- Submit PRs directly to the `master` branch.
+- Submit PRs directly to the `develop` branch.
 
 - Work in the `src` folder and **DO NOT** checkin `dist` in commits.
 
@@ -56,30 +56,35 @@ Other ways to help:
 2. Clone your fork: `git clone git@github.com:<username>/marktext.git`
 3. Create a feature branch: `git checkout -b feature`
 4. Make you changes and push your branch.
-5. Create a PR against `master` and describe your changes.
+5. Create a PR against `develop` and describe your changes.
 
 **Rebase your PR:**
 
 If there are conflicts or you want to update your local branch, please do the following:
 
 1. `git fetch upstream`
-2. `git rebase upstream/master`
+2. `git rebase upstream/develop`
 3. Please [resolve](https://help.github.com/articles/resolving-merge-conflicts-after-a-git-rebase/) all conflicts and force push your feature branch: `git push -f`
 
 ### Build Instructions
 
 **Prerequisites:**
 
-Before you can get started developing, you need set up your build envoriment:
+Before you can get started developing, you need set up your build environment:
 
-- git
-- Node.js, npm and yarn
+- Node.js `>=v10.16.0`, npm and yarn
+- Python `v2.7.x` for node-gyp
 - C++ compiler and development tools
 
 **Additional development dependencies on Linux:**
 
-On Debian-based Linux: `sudo apt-get install libx11-dev libxkbfile-dev`
-On Red Hat-based Linux: `sudo dnf install libx11-devel libxkbfile-devel`
+- libx11 (dev)
+- libxkbfile (dev)
+- libsecret (dev)
+
+On Debian-based Linux: `sudo apt-get install libx11-dev libxkbfile-dev libsecret-1-dev`
+
+On Red Hat-based Linux: `sudo dnf install libx11-devel libxkbfile-devel libsecret-devel`
 
 **Let's build:**
 
@@ -109,26 +114,22 @@ For more scripts please see `package.json`.
 
 - ES6 and "best practices"
 - 2 space indent
+- no semicolons
 - JSDoc for documentation
 
 ## Project Structure
 
-- root: Configuration files
-
+- `.`: Configuration files
 - `package.json`: Project settings
-
-- `build`: Contains generated binaries
-
-- `dist`: Build files for deployment
-
-- `doc`: Documentation and assets
-
-- `node_modules`: Dependencies
-
+- `build/`: Contains generated binaries
+- `dist/`: Build files for deployment
+- `docs/`: Documentation and assets
+- `resources/`: Application assets using at build time
+- `node_modules/`: Dependencies
 - `src`: Mark Text source code
-
-  - TBD
-
-- `static`: Application assets (images, themes, etc)
-
-- `test`: Contains (unit) tests
+  - `common/`: Common source files that only require Node.js APIs. Code from this folder can be used in all other folders except `muya`.
+  - `main/`: Main process source files that require Electron main-process APIs. `main` files can use `common` source code.
+  - `muya/`: Mark Texts backend that only allow pure JavaScript, BOM and DOM APIs. Don't use Electron or Node.js APIs!
+  - `renderer`: Fontend that require Electron renderer-process APIs and may use `common` or `muya` source code.
+- `static/`: Application assets (images, themes, etc)
+- `test/`: Contains (unit) tests

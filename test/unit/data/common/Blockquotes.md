@@ -12,6 +12,14 @@ foo
 - > bar
 - baz
 
+> 1. Lorem Ipsum is simply dummy text 1
+> 2. Lorem Ipsum is simply dummy text 2
+> 3. Lorem Ipsum is simply dummy text 3
+
+> Use it if you're quoting a person, a song or whatever.
+
+> You can use *italic* or lists inside them also.
+
 ## Failing Tests
 
 ```
@@ -25,22 +33,10 @@ paragraph.
 ```
 
 ```
-> - 1
-> - 1
-> - 1
-```
-
-```
 * foo
 
   > This is a blockquote
   > inside a list item.
 
-* bar`
-```
-
-```
-> Use it if you're quoting a person, a song or whatever.
-
-> You can use *italic* or lists inside them also.
+* bar
 ```

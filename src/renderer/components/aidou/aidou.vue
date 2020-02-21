@@ -1,31 +1,31 @@
 <template>
-  <div class="aidou" :class="theme">
-    <el-dialog 
+  <div class="aidou">
+    <el-dialog
       :visible.sync="showAiDou"
       :show-close="false"
       :modal="true"
       custom-class="ag-dialog-table"
       width="610px"
-    
+
     >
       <div slot="title" class="search-wrapper">
         <div class="input-wrapper">
           <svg class="icon" aria-hidden="true" @click="search()">
             <use xlink:href="#icon-search"></use>
-          </svg> 
+          </svg>
           <input
             type="text" v-model="query" class="search"
             @keyup="handleInput"
             @input="historyIndex = -1"
             @focus = "showCollection = false"
             ref="search" placeholder="Discover you next dotu..."
-          > 
+          >
           <svg class="icon" aria-hidden="true" @click="getCollection">
             <use xlink:href="#icon-collect"></use>
           </svg>
           <svg class="icon" aria-hidden="true" @click="shuffle">
             <use xlink:href="#icon-shuffle"></use>
-          </svg>        
+          </svg>
         </div>
         <transition name="fade">
           <ul v-if="history.length && !query && !showCollection" class="history">
@@ -46,12 +46,12 @@
       <div class="image-container" ref="emojis">
         <div class="img-wrapper" v-for="(emoji, index) of emojis" :key="index" @click="handleEmojiClick(emoji)">
           <svg
-            class="icon" 
+            class="icon"
             :class="{'active': emoji.collected}"
             aria-hidden="true" @click.stop="collect(emoji)"
           >
             <use xlink:href="#icon-collected"></use>
-          </svg>  
+          </svg>
           <img :src="emoji.link" alt="doutu">
         </div>
         <loading v-if="aiLoading"></loading>
@@ -65,173 +65,172 @@
 </template>
 
 <script>
-  import bus from '../../bus'
-  import loading from './loading'
-  import { mapState } from 'vuex'
-  import hotWords from './hotWords'
-  import resource from '../../store/resource'
-  import { dotuHistory, collection } from '../../util'
+import bus from '../../bus'
+import loading from './loading'
+import { mapState } from 'vuex'
+import hotWords from './hotWords'
+import resource from '../../store/resource'
+import { dotuHistory, collection } from '../../util'
 
-  export default {
-    components: {
-      loading
+export default {
+  components: {
+    loading
+  },
+  data () {
+    return {
+      showCollection: false,
+      collection: collection.getItems(),
+      historyIndex: -1,
+      history: dotuHistory.getItems(),
+      showAiDou: false,
+      query: '',
+      page: 1,
+      size: 24,
+      bindScroll: false
+    }
+  },
+  created () {
+    this.$nextTick(() => {
+      bus.$on('aidou', this.handleShowAiDou)
+    })
+  },
+  beforeDestroy () {
+    const container = this.$refs.emojis
+    if (container) {
+      container.removeEventListener('scroll', this.handlerScroll)
+    }
+  },
+  computed: {
+    ...mapState({
+      aiList: state => state.aidou.aiList,
+      aiLoading: state => state.aidou.aiLoading
+    }),
+    emojis () {
+      return this.aiList.map(e => {
+        e.collected = this.collection.findIndex(c => c.link === e.link) > -1
+        return e
+      })
+    }
+  },
+  methods: {
+    getCollection () {
+      const data = this.collection
+      const type = 'collect'
+      this.$store.dispatch('AI_LIST', { data, type })
+      this.showCollection = true
+      this.query = ''
     },
-    data () {
-      return {
-        showCollection: false,
-        collection: collection.getItems(),
-        historyIndex: -1,
-        history: dotuHistory.getItems(),
-        showAiDou: false,
-        query: '',
-        page: 1,
-        size: 24,
-        bindScroll: false
+    collect (emoji) {
+      if (emoji.collected) {
+        emoji.collected = false
+        collection.deleteItem(emoji)
+      } else {
+        emoji.collected = true
+        collection.setItem(emoji)
+      }
+      this.collection = collection.getItems()
+    },
+    async handleEmojiClick ({ link }) {
+      try {
+        const base64 = await resource.fetchImgToBase64(link)
+        const { url } = await resource.sm(base64)
+        bus.$emit('insert-image', url)
+        this.showAiDou = false
+      } catch (err) {
+        // todo handle error
+        console.log(err)
       }
     },
-    created () {
+    clearHistory () {
+      dotuHistory.clear()
+      this.history = dotuHistory.getItems()
+      this.historyIndex = -1
+    },
+    deleteHistory (word) {
+      dotuHistory.deleteItem(word)
+      this.history = dotuHistory.getItems()
+      this.historyIndex = -1
+    },
+    handleInput (event) {
+      let historyIndex = this.historyIndex
+      switch (event.key) {
+        case 'Enter': {
+          const query = this.historyIndex !== -1 ? this.history[this.historyIndex] : this.query
+          if (!this.aiLoading) {
+            this.search(query)
+          }
+          break
+        }
+        case 'ArrowUp': {
+          historyIndex = historyIndex - 1
+          if (historyIndex === -1 || historyIndex === -2) {
+            this.historyIndex = this.history.length - 1
+          } else {
+            this.historyIndex = historyIndex
+          }
+          break
+        }
+        case 'ArrowDown': {
+          historyIndex = historyIndex + 1
+          if (historyIndex >= this.history.length) {
+            this.historyIndex = 0
+          } else {
+            this.historyIndex = historyIndex
+          }
+          break
+        }
+      }
+    },
+    handleShowAiDou () {
+      this.showAiDou = true
+      if (!this.bindScroll) {
+        this.$nextTick(() => {
+          const container = this.$refs.emojis
+          container.addEventListener('scroll', this.handlerScroll)
+          this.bindScroll = true
+        })
+      }
       this.$nextTick(() => {
-        bus.$on('aidou', this.handleShowAiDou)
+        if (this.$refs.search) {
+          this.$refs.search.focus()
+        }
       })
     },
-    beforeDestroy () {
+    handlerScroll (event) {
       const container = this.$refs.emojis
-      if (container) {
-        container.removeEventListener('scroll', this.handlerScroll)
+      const { offsetHeight, scrollHeight, scrollTop } = container
+      if (scrollHeight - scrollTop - offsetHeight <= 100 && !this.aiLoading) {
+        this.loadMore()
       }
     },
-    computed: {
-      ...mapState({
-        'aiList': state => state.aidou.aiList,
-        'aiLoading': state => state.aidou.aiLoading
-      }),
-      ...mapState({
-        'theme': state => state.preferences.theme
-      }),
-      emojis () {
-        return this.aiList.map(e => {
-          e.collected = this.collection.findIndex(c => c.link === e.link) > -1
-          return e
-        })
+    search (word = this.query.trim()) {
+      const { size } = this
+      const query = this.query = word
+      const page = this.page = 1
+      const type = 'search'
+      const params = { query, size, page }
+      if (query) {
+        // add query to dotuHistory
+        dotuHistory.setItem(query)
+        this.history = dotuHistory.getItems()
+        this.historyIndex = -1
+        this.$store.dispatch('AI_SEARCH', { params, type })
       }
     },
-    methods: {
-      getCollection () {
-        const data = this.collection
-        const type = 'collect'
-        this.$store.dispatch('AI_LIST', { data, type })
-        this.showCollection = true
-        this.query = ''
-      },
-      collect (emoji) {
-        if (emoji.collected) {
-          emoji.collected = false
-          collection.deleteItem(emoji)
-        } else {
-          emoji.collected = true
-          collection.setItem(emoji)
-        }
-        this.collection = collection.getItems()
-      },
-      async handleEmojiClick ({ link }) {
-        try {
-          const base64 = await resource.fetchImgToBase64(link)
-          const { url } = await resource.sm(base64)
-          bus.$emit('insert-image', url)
-          this.showAiDou = false
-        } catch (err) {
-          // todo handle error
-          console.log(err)
-        }
-      },
-      clearHistory () {
-        dotuHistory.clear()
-        this.history = dotuHistory.getItems()
-        this.historyIndex = -1
-      },
-      deleteHistory (word) {
-        dotuHistory.deleteItem(word)
-        this.history = dotuHistory.getItems()
-        this.historyIndex = -1
-      },
-      handleInput (event) {
-        let historyIndex = this.historyIndex
-        switch (event.key) {
-          case 'Enter': {
-            const query = this.historyIndex !== -1 ? this.history[this.historyIndex] : this.query
-            if (!this.aiLoading) {
-              this.search(query)
-            }
-            break
-          }
-          case 'ArrowUp': {
-            historyIndex = historyIndex - 1
-            if (historyIndex === -1 || historyIndex === -2) {
-              this.historyIndex = this.history.length - 1
-            } else {
-              this.historyIndex = historyIndex
-            }
-            break
-          }
-          case 'ArrowDown': {
-            historyIndex = historyIndex + 1
-            if (historyIndex >= this.history.length) {
-              this.historyIndex = 0
-            } else {
-              this.historyIndex = historyIndex
-            }
-            break
-          }
-        }
-      },
-      handleShowAiDou () {
-        this.showAiDou = true
-        if (!this.bindScroll) {
-          this.$nextTick(() => {
-            const container = this.$refs.emojis
-            container.addEventListener('scroll', this.handlerScroll)
-            this.bindScroll = true
-          })
-        }
-        this.$nextTick(() => {
-          this.$refs.search.focus()
-        })
-      },
-      handlerScroll (event) {
-        const container = this.$refs.emojis
-        const { offsetHeight, scrollHeight, scrollTop } = container
-        if (scrollHeight - scrollTop - offsetHeight <= 100 && !this.aiLoading) {
-          this.loadMore()
-        }
-      },
-      search (word = this.query.trim()) {
-        const { size } = this
-        const query = this.query = word
-        const page = this.page = 1
-        const type = 'search'
-        const params = { query, size, page }
-        if (query) {
-          // add query to dotuHistory
-          dotuHistory.setItem(query)
-          this.history = dotuHistory.getItems()
-          this.historyIndex = -1
-          this.$store.dispatch('AI_SEARCH', { params, type })
-        }
-      },
-      loadMore () {
-        const { query, size, page } = this
-        if (query.trim()) {
-          const params = { query, size, page: page + 1 }
-          this.$store.dispatch('AI_SEARCH', { params, type: 'loadMore' })
-        }
-      },
-      shuffle () {
-        const luckWord = hotWords[Math.random() * hotWords.length | 0]
-        this.query = luckWord
-        this.search()
+    loadMore () {
+      const { query, size, page } = this
+      if (query.trim()) {
+        const params = { query, size, page: page + 1 }
+        this.$store.dispatch('AI_SEARCH', { params, type: 'loadMore' })
       }
+    },
+    shuffle () {
+      const luckWord = hotWords[Math.random() * hotWords.length | 0]
+      this.query = luckWord
+      this.search()
     }
   }
+}
 </script>
 
 <style scoped>
@@ -253,14 +252,17 @@
     align-items: center;
     height: auto;
     padding: 5px;
-    background: #fff;
-    box-shadow: 0 3px 8px rgba(0, 0, 0, .1);
-    border: 1px solid #eeeeee;
+    color: var(--editorColor);
+    background: var(--floatBgColor);
+    box-shadow: 0 3px 8px 3px var(--floatHoverColor);
+    border: 1px solid var(--floatBorderColor);
     border-radius: 3px;
   }
   .input-wrapper {
     display: flex;
     width: 100%;
+    border: 1px solid var(--sideBarTextColor);
+    border-radius: 14px;
   }
   .search {
     width: 100%;
@@ -270,18 +272,19 @@
     font-size: 14px;
     padding: 0 8px;
     margin: 0 10px;
-    color: #606266;
+    color: var(--editorColor);
+    background: transparent;
   }
   .search-wrapper svg {
     cursor: pointer;
     margin: 0 5px;
     width: 30px;
     height: 30px;
-    color: #606266;
+    color: var(--iconColor);
     transition: all .3s ease-in-out;
   }
   .search-wrapper svg:hover {
-    color: var(--activeColor);
+    color: var(--themeColor);
   }
   ul.history {
     display: flex;
@@ -312,12 +315,12 @@
   }
   ul.history .clear-history span {
     font-size: 12px;
-    color: #C0C4CC;
+    color: var(--themeColor);
     text-align: center;
     cursor: pointer;
   }
   ul.history li.active {
-    background: #EBEEF5;
+    background: var(--floatHoverColor);
   }
   ul.history:hover li {
     background: transparent;
@@ -326,7 +329,7 @@
     display: block;
   }
   ul.history li:hover {
-    background: #EBEEF5;
+    background: var(--floatHoverColor);
   }
   .image-container {
     height: 410px;
@@ -358,7 +361,7 @@
     display: none;
   }
   .image-container .img-wrapper > svg.active {
-    color: var(--activeColor);
+    color: var(--themeColor);
   }
   .image-container .img-wrapper:hover > svg {
     display: block;
@@ -378,20 +381,4 @@
   .fade-enter, .fade-leave-to /* .fade-leave-active below version 2.1.8 */ {
     opacity: 0;
   }
-  /* style for dark theme */
-  .dark .search-wrapper {
-    background: var(--darkInputBgColor);
-    border-color: transparent;
-    & input {
-      background: transparent;
-      color: var(--darkInputColor);
-    }
-  }
-  .dark ul.history li.active {
-    background: rgb(39, 39, 39);
-  }
-  .dark ul.history li:hover {
-    background: rgb(39, 39, 39);
-  }
-
 </style>

@@ -5,15 +5,14 @@
       <tabs v-show="showTabBar"></tabs>
       <div class="container">
         <editor
-          :theme="theme"
           :fileanme="filename"
           :markdown="markdown"
           :cursor="cursor"
           :text-direction="textDirection"
+          :platform="platform"
         ></editor>
         <source-code
           v-if="sourceCode"
-          :theme="theme"
           :markdown="markdown"
           :cursor="cursor"
           :text-direction="textDirection"
@@ -23,57 +22,60 @@
 </template>
 
 <script>
-  import Tabs from './tabs.vue'
-  import Editor from './editor.vue'
-  import SourceCode from './sourceCode.vue'
+import Tabs from './tabs.vue'
+import Editor from './editor.vue'
+import SourceCode from './sourceCode.vue'
 
-  export default {
-    props: {
-      theme: {
-        type: String,
-        required: true
-      },
-      filename: {
-        type: String
-      },
-      markdown: {
-        type: String,
-        required: true
-      },
-      cursor: {
-        validator (value) {
-          return typeof value === 'object'
-        },
-        required: true
-      },
-      sourceCode: {
-        type: Boolean,
-        required: true
-      },
-      showTabBar: {
-        type: Boolean,
-        required: true
-      },
-      textDirection: {
-        type: String,
-        required: true
-      }
+export default {
+  props: {
+    filename: {
+      type: String
     },
-    components: {
-      Tabs,
-      Editor,
-      SourceCode
+    markdown: {
+      type: String,
+      required: true
+    },
+    cursor: {
+      validator (value) {
+        return typeof value === 'object'
+      },
+      required: true
+    },
+    sourceCode: {
+      type: Boolean,
+      required: true
+    },
+    showTabBar: {
+      type: Boolean,
+      required: true
+    },
+    textDirection: {
+      type: String,
+      required: true
+    },
+    platform: {
+      type: String,
+      required: true
     }
+  },
+  components: {
+    Tabs,
+    Editor,
+    SourceCode
   }
+}
 </script>
 
 <style scoped>
   .editor-with-tabs {
+    position: relative;
+    height: 100%;
     flex: 1;
     display: flex;
     flex-direction: column;
-    height: calc(100vh - var(--titleBarHeight));
+
     overflow: hidden;
+    background: var(--editorBgColor);
     & > .container {
       flex: 1;
       overflow: hidden;

@@ -1,4 +1,5 @@
 import template from './index.html'
+import { getUniqueId } from '../../util'
 import './index.css'
 
 const INON_HASH = {
@@ -7,19 +8,32 @@ const INON_HASH = {
   warning: 'icon-warn',
   info: 'icon-info'
 }
+const TYPE_HASH = {
+  primary: 'mt-primary',
+  error: 'mt-error',
+  warning: 'mt-warn',
+  info: 'mt-info'
+}
 
 const notification = {
   name: 'notify',
+  noticeCache: {},
+  clear () {
+    Object.keys(this.noticeCache).forEach(key => {
+      this.noticeCache[key].remove()
+    })
+  },
   notify ({
     time = 10000,
     title = '',
     message = '',
-    type = 'primary', // primary error warning info
+    type = 'primary', // primary, error, warning or info
     showConfirm = false
   }) {
     let rs
     let rj
     let timer = null
+    const id = getUniqueId()
 
     const fragment = document.createElement('div')
     fragment.innerHTML = template
@@ -29,18 +43,20 @@ const notification = {
 
     const noticeContainer = fragment.querySelector('.mt-notification')
     const bgNotice = noticeContainer.querySelector('.notice-bg')
+    const contentContainer = noticeContainer.querySelector('.content')
     const fluent = noticeContainer.querySelector('.fluent')
     const close = noticeContainer.querySelector('.close')
     const { offsetHeight } = noticeContainer
     let target = noticeContainer
-    noticeContainer.classList.add(`mt-${type}`)
 
     if (showConfirm) {
       noticeContainer.classList.add(`mt-confirm`)
       target = noticeContainer.querySelector('.confirm')
     }
 
-    bgNotice.style.backgroundColor = `var(--${type})`
+    noticeContainer.classList.add(TYPE_HASH[type])
+    contentContainer.classList.add(TYPE_HASH[type])
+    bgNotice.classList.add(TYPE_HASH[type])
 
     fluent.style.height = offsetHeight * 2 + 'px'
     fluent.style.width = offsetHeight * 2 + 'px'
@@ -93,7 +109,7 @@ const notification = {
       const notices = document.querySelectorAll('.mt-notification')
       let i
       let hx = 0
-      let len = notices.length
+      const len = notices.length
       for (i = 0; i < len; i++) {
         notices[i].style.transform = `translate(0, -${hx}px)`
         notices[i].style.zIndex = 10000 - i
@@ -117,8 +133,13 @@ const notification = {
         close.removeEventListener('click', closeHandler)
         noticeContainer.remove()
         rePositionNotices()
+        if (this.noticeCache[id]) {
+          delete this.noticeCache[id]
+        }
       }, 100)
     }
+
+    this.noticeCache[id] = { remove }
 
     noticeContainer.addEventListener('mousemove', mousemoveHandler)
     noticeContainer.addEventListener('mouseleave', mouseleaveHandler)

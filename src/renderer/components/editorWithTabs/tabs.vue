@@ -1,95 +1,206 @@
 <template>
+  <div
+    class="editor-tabs"
+    :style="{'max-width': showSideBar ? `calc(100vw - ${sideBarWidth}px` : '100vw' }"
+  >
     <div
-      class="editor-tabs"
-      :class="theme"
+      class="scrollable-tabs"
+      ref="tabContainer"
     >
-      <ul class="tabs-container">
+      <ul
+        ref="tabDropContainer"
+        class="tabs-container"
+      >
         <li
           :title="file.pathname"
           :class="{'active': currentFile.id === file.id, 'unsaved': !file.isSaved }"
-          v-for="(file, index) of tabs"
-          :key="index"
+          v-for="file of tabs"
+          :key="file.id"
+          :data-id="file.id"
           @click.stop="selectFile(file)"
         >
           <span>{{ file.filename }}</span>
-          <svg class="icon" aria-hidden="true"
+          <svg class="close-icon icon" aria-hidden="true"
             @click.stop="removeFileInTab(file)"
           >
-            <use xlink:href="#icon-close-small"></use>
-          </svg>
-        </li>
-        <li class="new-file">
-          <svg class="icon" aria-hidden="true"
-            @click.stop="newFile()"
-          >
-            <use xlink:href="#icon-plus"></use>
+            <circle id="unsaved-circle-icon" cx="6" cy="6" r="3"></circle>
+            <use id="default-close-icon" xlink:href="#icon-close-small"></use>
           </svg>
         </li>
       </ul>
     </div>
+    <div
+      class="new-file"
+    >
+      <svg class="icon" aria-hidden="true"
+        @click.stop="newFile()"
+      >
+        <use xlink:href="#icon-plus"></use>
+      </svg>
+    </div>
+  </div>
 </template>
 
 <script>
-  import { mapState } from 'vuex'
-  import { tabsMixins } from '../../mixins'
+import { mapState } from 'vuex'
+import autoScroll from 'dom-autoscroller'
+import dragula from 'dragula'
+import { tabsMixins } from '../../mixins'
 
-  export default {
-    mixins: [tabsMixins],
-    computed: {
-      ...mapState({
-        theme: state => state.preferences.theme,
-        currentFile: state => state.editor.currentFile,
-        tabs: state => state.editor.tabs
-      })
+export default {
+  data () {
+    this.autoScroller = null
+    this.drake = null
+    return {}
+  },
+  mixins: [tabsMixins],
+  computed: {
+    ...mapState({
+      currentFile: state => state.editor.currentFile,
+      tabs: state => state.editor.tabs,
+      showSideBar: state => state.layout.showSideBar,
+      sideBarWidth: state => state.layout.sideBarWidth
+    })
+  },
+  methods: {
+    newFile () {
+      this.$store.dispatch('NEW_UNTITLED_TAB', {})
     },
-    methods: {
-      newFile () {
-        this.$store.dispatch('NEW_BLANK_FILE')
+    handleTabScroll (event) {
+      // Use mouse wheel value first but prioritize X value more (e.g. touchpad input).
+      let delta = event.deltaY
+      if (event.deltaX !== 0) {
+        delta = event.deltaX
       }
+
+      const tabs = this.$refs.tabContainer
+      const newLeft = Math.max(0, Math.min(tabs.scrollLeft + delta, tabs.scrollWidth))
+      tabs.scrollLeft = newLeft
+    }
+  },
+  mounted () {
+    this.$nextTick(() => {
+      const tabs = this.$refs.tabContainer
+
+      // Allow to scroll through the tabs by mouse wheel or touchpad.
+      tabs.addEventListener('wheel', this.handleTabScroll)
+
+      // Allow tab drag and drop to reorder tabs.
+      const drake = this.drake = dragula([this.$refs.tabDropContainer], {
+        direction: 'horizontal',
+        revertOnSpill: true,
+        mirrorContainer: this.$refs.tabDropContainer,
+        ignoreInputTextSelection: false
+      }).on('drop', (el, target, source, sibling) => {
+        // Current tab that was dropped and need to be reordered.
+        const droppedId = el.getAttribute('data-id')
+        // This should be the next tab (tab | ... | el | sibling | tab | ...) but may be
+        // the mirror image or null (tab | ... | el | sibling or null) if last tab.
+        const nextTabId = sibling && sibling.getAttribute('data-id')
+        const isLastTab = !sibling || sibling.classList.contains('gu-mirror')
+        if (!droppedId || (sibling && !nextTabId)) {
+          throw new Error('Cannot reorder tabs: invalid tab id.')
+        }
+
+        this.$store.dispatch('EXCHANGE_TABS_BY_ID', {
+          fromId: droppedId,
+          toId: isLastTab ? null : nextTabId
+        })
+      })
+
+      // TODO(perf): Create a copy of dom-autoscroller and just hook tabs-container to
+      //   improve performance. Currently autoScroll is triggered when the mouse is moved
+      //   in Mark Text window.
+
+      // Scroll when dragging a tab to the beginning or end of the tab container.
+      this.autoScroller = autoScroll([tabs], {
+        margin: 20,
+        maxSpeed: 6,
+        scrollWhenOutside: false,
+        autoScroll: () => {
+          return this.autoScroller.down && drake.dragging
+        }
+      })
+    })
+  },
+  beforeDestroy () {
+    const tabs = this.$refs.tabContainer
+    tabs.removeEventListener('wheel', this.handleTabScroll)
+
+    if (this.autoScroller) {
+      // Force destroy
+      this.autoScroller.destroy(true)
+    }
+    if (this.drake) {
+      this.drake.destroy()
     }
   }
+}
 </script>
 
 <style scoped>
+  svg.close-icon #unsaved-circle-icon {
+    fill: var(--themeColor);
+  }
   .editor-tabs {
-    width: 100%;
+    position: relative;
+    display: flex;
+    flex-direction: row;
     height: 35px;
-    background: var(--lightBarColor);
     user-select: none;
+    box-shadow: 0px 0px 9px 2px rgba(0, 0, 0, .1);
+    overflow: hidden;
+    &:hover > .new-file {
+      opacity: 1 !important;
+    }
+  }
+  .scrollable-tabs {
+    flex: 0 1 auto;
+    height: 35px;
+    overflow: hidden;
   }
   .tabs-container {
+    min-width: min-content;
     list-style: none;
     margin: 0;
     padding: 0;
+    height: 35px;
+    position: relative;
     display: flex;
     flex-direction: row;
-    overflow: auto;
+    overflow-y: hidden;
+    z-index: 2;
     &::-webkit-scrollbar:horizontal {
       display: none;
     }
     & > li {
       position: relative;
       padding: 0 8px;
-      color: var(--secondaryColor);
+      color: var(--editorColor50);
       font-size: 12px;
       line-height: 35px;
       height: 35px;
-      background: var(--lightTabColor);
+      max-width: 280px;
+      background: var(--floatBgColor);
       display: flex;
       align-items: center;
-      &:not(:last-child):before {
-        content: '';
-        position: absolute;
-        top: 20%;
-        right: 0;
-        border-right: 1px solid #fff;
-        height: 60%;
+      &[aria-grabbed="true"] {
+        color: var(--editorColor30) !important;
       }
       & > svg {
         opacity: 0;
       }
+      &:focus {
+        outline: none;
+      }
       &:hover > svg {
         opacity: 1;
+      }
+      &:hover > svg.close-icon #default-close-icon {
+        display: block !important;
+      }
+      &:hover > svg.close-icon #unsaved-circle-icon {
+        display: none !important;
       }
       & > span {
         overflow: hidden;
@@ -98,43 +209,69 @@
         margin-right: 3px;
       }
     }
+    & > li.unsaved:not(.active) {
+      & > svg.close-icon {
+        opacity: 1;
+      }
+      & > svg.close-icon #unsaved-circle-icon {
+        display: block;
+      }
+      & > svg.close-icon #default-close-icon {
+        display: none;
+      }
+    }
     & > li.active {
-      background: #fff;
-      &:not(:last-child):after {
+      background: var(--itemBgColor);
+      z-index: 3;
+      &:after {
         content: '';
         position: absolute;
         left: 0;
         bottom: 0;
         right: 0;
         height: 2px;
-        background: var(--primary);
+        background: var(--themeColor);
       }
       & > svg {
         opacity: 1;
       }
+      & > svg.close-icon #unsaved-circle-icon {
+        display: none;
+      }
     }
+  }
+  .editor-tabs > .new-file {
+    flex: 0 0 35px;
+    width: 35px;
+    height: 35px;
+    border-right: none;
+    background: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    cursor: pointer;
+    color: var(--editorColor50);
+    opacity: 0;
+    &.always-visible {
+      opacity: 1;
+    }
+  }
 
-    & > li.new-file {
-      width: 35px;
-      height: 35px;
-      border-right: none;
-      background: transparent;
-      display: flex;
-      align-items: center;
-      justify-content: space-around;
-      cursor: pointer;
-    }
+  /* dragula effects */
+  .gu-mirror {
+    position: fixed !important;
+    margin: 0 !important;
+    z-index: 9999 !important;
+    opacity: 0.8;
+    cursor: grabbing;
   }
-  .editor-tabs.dark {
-    background: var(--darkBgColor);
+  .gu-hide {
+    display: none !important;
   }
-  .editor-tabs.dark ul li {
-    background: var(--darkBgColor);
-    &:not(:last-child):before {
-      border-right-color: var(--darkHoverColor);
-    }
-    &.active {
-      color: var(--lightBorder);
-    }
+  .gu-unselectable {
+    user-select: none !important;
+  }
+  .gu-transit {
+    opacity: 0.2;
   }
 </style>

@@ -1,5 +1,5 @@
 <template>
-  <div class="tweet-dialog" :class="theme">
+  <div class="tweet-dialog">
     <el-dialog
       :visible.sync="showTweetDialog"
       :show-close="false"
@@ -38,7 +38,7 @@
             cols="30" rows="10" v-model="value" ref="textarea"
           ></textarea>
         </div>
-        <div class="button">
+        <div class="buttons">
           <a
             href="javascript:;"
             class="github"
@@ -67,68 +67,61 @@
 </template>
 
 <script>
-  import { shell } from 'electron'
-  import { mapState } from 'vuex'
-  import bus from '../../bus'
+import { shell } from 'electron'
+import bus from '../../bus'
 
-  export default {
-    data () {
-      return {
-        showTweetDialog: false,
-        value: '',
-        selectedFace: 'smile'
-      }
-    },
-    computed: {
-      ...mapState({
-        'theme': state => state.preferences.theme
+export default {
+  data () {
+    return {
+      showTweetDialog: false,
+      value: '',
+      selectedFace: 'smile'
+    }
+  },
+  created () {
+    bus.$on('tweetDialog', this.showDialog)
+  },
+  beforeDestroy () {
+    bus.$off('tweetDialog', this.showDialog)
+  },
+  methods: {
+    showDialog () {
+      this.showTweetDialog = true
+      this.value = ''
+      bus.$emit('editor-blur')
+      this.$nextTick(() => {
+        this.$refs.textarea.focus()
       })
     },
-    created () {
-      bus.$on('tweetDialog', this.showDialog)
+    faceClick (name) {
+      this.selectedFace = name
     },
-    beforeDestroy () {
-      bus.$off('tweetDialog', this.showDialog)
+    reportViaGithub () {
+      shell.openExternal('https://github.com/marktext/marktext/issues/new')
     },
-    methods: {
-      showDialog () {
-        this.showTweetDialog = true
-        this.value = ''
-        bus.$emit('editor-blur')
-        this.$nextTick(() => {
-          this.$refs.textarea.focus()
-        })
-      },
-      faceClick (name) {
-        this.selectedFace = name
-      },
-      reportViaGithub () {
-        shell.openExternal('https://github.com/marktext/marktext/issues/new')
-      },
-      reportViaTwitter () {
-        const { value, selectedFace } = this
-        if (!value) return
-        const origin = 'https://twitter.com/intent/tweet'
+    reportViaTwitter () {
+      const { value, selectedFace } = this
+      if (!value) return
+      const origin = 'https://twitter.com/intent/tweet'
 
-        const params = {
-          via: 'marktextme',
-          url: encodeURI('https://github.com/marktext/marktext/'),
-          text: value
-        }
-
-        if (selectedFace === 'smile') params.hashtags = 'happyMarkText'
-
-        shell.openExternal(`${origin}?${Object.keys(params).map(key => `${key}=${params[key]}`).join('&')}`)
-        this.showTweetDialog = false
+      const params = {
+        via: 'marktextme',
+        url: encodeURI('https://github.com/marktext/marktext/'),
+        text: value
       }
+
+      if (selectedFace === 'smile') params.hashtags = 'happyMarkText'
+
+      shell.openExternal(`${origin}?${Object.keys(params).map(key => `${key}=${params[key]}`).join('&')}`)
+      this.showTweetDialog = false
     }
   }
+}
 </script>
 
 <style>
   .tweet-dialog {
-    width: 450px;
-    color: var(--regularColor);
+    color: var(--sideBarColor);
     & .title {
       font-size: 24px;
     }
@@ -136,11 +129,14 @@
       border-top-left-radius: 5px;
       border-top-right-radius: 5px;
     }
+    & .el-dialog__body {
+      color: var(--sideBarColor);
+    }
   }
-  .feeling, .feedback {
+  .tweet-dialog .feeling, .tweet-dialog .feedback {
     font-size: 16px;
   }
-  .feeling {
+  .tweet-dialog .feeling {
     & ul {
       display: flex;
       list-style: none;
@@ -163,7 +159,7 @@
       color: rgb(255, 204, 0);
     }
   }
-  .feedback {
+  .tweet-dialog .feedback {
     & > textarea {
       width: 100%;
       box-sizing: border-box;
@@ -171,19 +167,21 @@
       padding: .5rem;
       resize: none;
       outline: none;
-      border-color: var(--lightBorder);
+      border: 1px solid var(--floatBorderColor);
+      background: var(--floatBorderColor);
+      color: var(--editorColor);
       border-radius: 5px;
       font-size: 14px;
       height: 80px;
     }
   }
-  .button {
+  .tweet-dialog .buttons {
     display: flex;
     justify-content: space-between;
     align-items: center;
   }
-  .button a.twitter {
-    color: var(--secondaryColor);
+  .tweet-dialog .buttons a.twitter {
+    color: var(--themeColor);
     text-decoration: none;
     width: auto;
     height: 30px;
@@ -195,18 +193,18 @@
     background: #eee;
     cursor: not-allowed;
   }
-  .button a.active {
-    background: var(--primary);
+  .tweet-dialog .buttons a.active {
+    background: var(--themeColor);
     color: #fff;
   }
-  .button a.active {
+  .tweet-dialog .buttons a.active {
     cursor: pointer;
   }
-  .button a.github {
-    color: var(--secondaryColor);
+  .tweet-dialog .buttons a.github {
+    color: var(--iconColor);
     text-decoration: none;
     &:hover {
-      color: #1da1f2;
+      color: var(--themeColor);
     }
     & > svg {
       width: 1.4rem;
@@ -214,13 +212,8 @@
       vertical-align: bottom;
     }
   }
-  .tweet-dialog.dark textarea {
-    background: var(--darkInputBgColor);
-    border-color: transparent;
-    color: var(--darkInputColor);
-  }
-  .tweet-dialog.light .el-dialog__header {
-    background: var(--primary);
+  .tweet-dialog .el-dialog__header {
+    background: var(--themeColor);
     color: #fff;
   }
 </style>

@@ -1,25 +1,21 @@
-import { clipboard, ipcRenderer, shell } from 'electron'
+import { clipboard, ipcRenderer, shell, webFrame } from 'electron'
 import path from 'path'
+import equal from 'deep-equal'
+import { isSamePathSync } from 'common/filesystem/paths'
 import bus from '../bus'
-import { hasKeys } from '../util'
-import { getOptionsFromState, getSingleFileState, getBlankFileState } from './help'
+import { hasKeys, getUniqueId } from '../util'
+import listToTree from '../util/listToTree'
+import { createDocumentState, getOptionsFromState, getSingleFileState, getBlankFileState } from './help'
 import notice from '../services/notification'
 
-// HACK: When rewriting muya, create and update muya's TOC during heading parsing and pass it to the renderer process.
-import { getTocFromMarkdown } from 'muya/lib/utils/dirtyToc'
+const autoSaveTimers = new Map()
 
 const state = {
   lineEnding: 'lf',
   currentFile: {},
   tabs: [],
-  textDirection: 'ltr'
-}
-
-const getters = {
-  toc: state => {
-    const { markdown } = state.currentFile
-    return getTocFromMarkdown(markdown)
-  }
+  listToc: [], // Just use for deep equal check. and replace with new toc if needed.
+  toc: []
 }
 
 const mutations = {
@@ -27,14 +23,18 @@ const mutations = {
   SET_SEARCH (state, value) {
     state.currentFile.searchMatches = value
   },
+  SET_TOC (state, toc) {
+    state.listToc = toc
+    state.toc = listToTree(toc)
+  },
   SET_CURRENT_FILE (state, currentFile) {
     const oldCurrentFile = state.currentFile
     if (!oldCurrentFile.id || oldCurrentFile.id !== currentFile.id) {
-      const { markdown, cursor, history, pathname } = currentFile
+      const { id, markdown, cursor, history, pathname } = currentFile
       window.DIRNAME = pathname ? path.dirname(pathname) : ''
       // set state first, then emit file changed event
       state.currentFile = currentFile
-      bus.$emit('file-changed', { markdown, cursor, renderCursor: true, history })
+      bus.$emit('file-changed', { id, markdown, cursor, renderCursor: true, history })
     }
   },
   ADD_FILE_TO_TABS (state, currentFile) {
@@ -44,26 +44,104 @@ const mutations = {
     const { tabs, currentFile } = state
     const index = tabs.indexOf(file)
     tabs.splice(index, 1)
-    state.tabs = tabs
+
+    if (file.id && autoSaveTimers.has(file.id)) {
+      const timer = autoSaveTimers.get(file.id)
+      clearTimeout(timer)
+      autoSaveTimers.delete(file.id)
+    }
+
     if (file.id === currentFile.id) {
-      const fileState = state.tabs[index] || state.tabs[index - 1] || {}
+      const fileState = state.tabs[index] || state.tabs[index - 1] || state.tabs[0] || {}
       state.currentFile = fileState
       if (typeof fileState.markdown === 'string') {
-        const { markdown, cursor, history } = fileState
-        bus.$emit('file-changed', { markdown, cursor, renderCursor: true, history })
+        const { id, markdown, cursor, history, pathname } = fileState
+        window.DIRNAME = pathname ? path.dirname(pathname) : ''
+        bus.$emit('file-changed', { id, markdown, cursor, renderCursor: true, history })
+      }
+      // Handle close the last tab, need to reset the TOC state
+      if (Object.keys(fileState).length === 0) {
+        state.listToc = []
+        state.toc = []
       }
     }
   },
-  SET_PATHNAME (state, file) {
-    const { filename, pathname, id } = file
-    if (id === state.currentFile.id && pathname) {
+  // Exchange from with to and move from to the end if to is null or empty.
+  EXCHANGE_TABS_BY_ID (state, tabIDs) {
+    const { fromId } = tabIDs
+    const toId = tabIDs.toId // may be null
+
+    const { tabs } = state
+    const moveItem = (arr, from, to) => {
+      if (from === to) return true
+      const len = arr.length
+      const item = arr.splice(from, 1)
+      if (item.length === 0) return false
+
+      arr.splice(to, 0, item[0])
+      return arr.length === len
+    }
+
+    const fromIndex = tabs.findIndex(t => t.id === fromId)
+    if (!toId) {
+      moveItem(tabs, fromIndex, tabs.length - 1)
+    } else {
+      const toIndex = tabs.findIndex(t => t.id === toId)
+      const realToIndex = fromIndex < toIndex ? toIndex - 1 : toIndex
+      moveItem(tabs, fromIndex, realToIndex)
+    }
+  },
+  LOAD_CHANGE (state, change) {
+    const { tabs, currentFile } = state
+    const { data, pathname } = change
+    const { isMixedLineEndings, lineEnding, adjustLineEndingOnSave, encoding, markdown, filename } = data
+    const options = { encoding, lineEnding, adjustLineEndingOnSave }
+    const newFileState = getSingleFileState({ markdown, filename, pathname, options })
+    if (isMixedLineEndings) {
+      notice.notify({
+        title: 'Line Ending',
+        message: `${filename} has mixed line endings which are automatically normalized to ${lineEnding.toUpperCase()}.`,
+        type: 'primary',
+        time: 20000,
+        showConfirm: false
+      })
+    }
+
+    const tab = tabs.find(t => isSamePathSync(t.pathname, pathname))
+    if (!tab) {
+      // The tab may be closed in the meanwhile.
+      console.error('LOAD_CHANGE: Cannot find tab in tab list.')
+      return
+    }
+
+    // Upate file content but not tab id.
+    const oldId = tab.id
+    Object.assign(tab, newFileState)
+    tab.id = oldId
+
+    if (pathname === currentFile.pathname) {
+      state.currentFile = tab
+      const { id, cursor, history } = tab
+      bus.$emit('file-changed', { id, markdown, cursor, renderCursor: true, history })
+    }
+  },
+  // NOTE: Please call this function only from main process via "AGANI::set-pathname" and free resources before!
+  SET_PATHNAME (state, { tab, fileInfo }) {
+    const { currentFile } = state
+    const { filename, pathname, id } = fileInfo
+
+    // Change reference path for images.
+    if (id === currentFile.id && pathname) {
       window.DIRNAME = path.dirname(pathname)
     }
 
-    const targetFile = state.tabs.filter(f => f.id === id)[0]
-    if (targetFile) {
-      const isSaved = true
-      Object.assign(targetFile, { filename, pathname, isSaved })
+    if (tab) {
+      Object.assign(tab, { filename, pathname, isSaved: true })
+    }
+  },
+  SET_SAVE_STATUS_BY_TAB (state, { tab, status }) {
+    if (hasKeys(tab)) {
+      tab.isSaved = status
     }
   },
   SET_SAVE_STATUS (state, status) {
@@ -83,9 +161,9 @@ const mutations = {
       state.currentFile.markdown = markdown
     }
   },
-  SET_IS_UTF8_BOM_ENCODED (state, isUtf8BomEncoded) {
+  SET_DOCUMENT_ENCODING (state, encoding) {
     if (hasKeys(state.currentFile)) {
-      state.currentFile.isUtf8BomEncoded = isUtf8BomEncoded
+      state.currentFile.encoding = encoding
     }
   },
   SET_LINE_ENDING (state, lineEnding) {
@@ -113,17 +191,35 @@ const mutations = {
       state.currentFile.history = history
     }
   },
-  CLOSE_TABS (state, arr) {
-    arr.forEach(id => {
+  CLOSE_TABS (state, tabIdList) {
+    if (!tabIdList || tabIdList.length === 0) return
+
+    let tabIndex = 0
+    tabIdList.forEach(id => {
       const index = state.tabs.findIndex(f => f.id === id)
+      const { pathname } = state.tabs[index]
+
+      // Notify main process to remove the file from the window and free resources.
+      if (pathname) {
+        ipcRenderer.send('mt::window-tab-closed', pathname)
+      }
+
       state.tabs.splice(index, 1)
-      if (state.currentFile.id === id) state.currentFile = {}
+      if (state.currentFile.id === id) {
+        state.currentFile = {}
+        window.DIRNAME = ''
+        if (tabIdList.length === 1) {
+          tabIndex = index
+        }
+      }
     })
+
     if (!state.currentFile.id && state.tabs.length) {
-      state.currentFile = state.tabs[0]
+      state.currentFile = state.tabs[tabIndex] || state.tabs[tabIndex - 1] || state.tabs[0] || {}
       if (typeof state.currentFile.markdown === 'string') {
-        const { markdown, cursor, history } = state.currentFile
-        bus.$emit('file-changed', { markdown, cursor, renderCursor: true, history })
+        const { id, markdown, cursor, history, pathname } = state.currentFile
+        window.DIRNAME = pathname ? path.dirname(pathname) : ''
+        bus.$emit('file-changed', { id, markdown, cursor, renderCursor: true, history })
       }
     }
   },
@@ -136,26 +232,40 @@ const mutations = {
       }
     })
   },
+
+  // TODO: Remove "SET_GLOBAL_LINE_ENDING" because nowhere used.
   SET_GLOBAL_LINE_ENDING (state, ending) {
     state.lineEnding = ending
-  },
-  SET_TEXT_DIRECTION (state, textDirection) {
-    if (hasKeys(state.currentFile)) {
-      state.currentFile.textDirection = textDirection
-    }
   }
 }
 
 const actions = {
-  // when cursor in `![](cursor)`, insert image popup will be shown! `absolute` or `relative`
-  ASK_FOR_INSERT_IMAGE ({ commit }, type) {
-    ipcRenderer.send('AGANI::ask-for-insert-image', type)
+  FORMAT_LINK_CLICK ({ commit }, { data, dirname }) {
+    ipcRenderer.send('AGANI::format-link-click', { data, dirname })
   },
+
+  LISTEN_SCREEN_SHOT ({ commit }) {
+    ipcRenderer.on('mt::screenshot-captured', e => {
+      bus.$emit('screenshot-captured')
+    })
+  },
+
   // image path auto complement
   ASK_FOR_IMAGE_AUTO_PATH ({ commit, state }, src) {
     const { pathname } = state.currentFile
     if (pathname) {
-      ipcRenderer.send('AGANI::ask-for-image-auto-path', { pathname, src })
+      let rs
+      const promise = new Promise((resolve, reject) => {
+        rs = resolve
+      })
+      const id = getUniqueId()
+      ipcRenderer.once(`mt::response-of-image-path-${id}`, (e, files) => {
+        rs(files)
+      })
+      ipcRenderer.send('mt::ask-for-image-auto-path', { pathname, src, id })
+      return promise
+    } else {
+      return []
     }
   },
 
@@ -175,8 +285,18 @@ const actions = {
       })
   },
 
-  REMOVE_FILE_IN_TABS ({ commit }, file) {
+  FORCE_CLOSE_TAB ({ commit, dispatch }, file) {
     commit('REMOVE_FILE_WITHIN_TABS', file)
+    const { pathname } = file
+
+    // Notify main process to remove the file from the window and free resources.
+    if (pathname) {
+      ipcRenderer.send('mt::window-tab-closed', pathname)
+    }
+  },
+
+  EXCHANGE_TABS_BY_ID ({ commit }, tabIDs) {
+    commit('EXCHANGE_TABS_BY_ID', tabIDs)
   },
 
   // need update line ending when change between windows.
@@ -194,23 +314,12 @@ const actions = {
     }
   },
 
-  LISTEN_FOR_TEXT_DIRECTION_MENU ({ commit, state, dispatch }) {
-    ipcRenderer.on('AGANI::req-update-text-direction-menu', e => {
-      dispatch('UPDATE_TEXT_DIRECTION_MENU')
-    })
-  },
-
-  UPDATE_TEXT_DIRECTION_MENU ({ commit, state }) {
-    const { textDirection } = state.currentFile
-    if (textDirection) {
-      ipcRenderer.send('AGANI::update-text-direction-menu', textDirection)
-    }
-  },
-
-  CLOSE_SINGLE_FILE ({ commit, state }, file) {
+  CLOSE_UNSAVED_TAB ({ commit, state }, file) {
     const { id, pathname, filename, markdown } = file
     const options = getOptionsFromState(file)
-    ipcRenderer.send('AGANI::save-close', [{ id, pathname, filename, markdown, options }], true)
+
+    // Save the file content via main process and send a close tab response.
+    ipcRenderer.send('mt::save-and-close-tabs', [{ id, pathname, filename, markdown, options }])
   },
 
   // need pass some data to main process when `save` menu item clicked
@@ -235,56 +344,89 @@ const actions = {
     })
   },
 
-  LISTEN_FOR_SET_PATHNAME ({ commit }) {
-    ipcRenderer.on('AGANI::set-pathname', (e, file) => {
-      commit('SET_PATHNAME', file)
+  LISTEN_FOR_SET_PATHNAME ({ commit, dispatch, state }) {
+    ipcRenderer.on('mt::set-pathname', (e, fileInfo) => {
+      const { tabs } = state
+      const { pathname, id } = fileInfo
+      const tab = tabs.find(f => f.id === id)
+      if (!tab) {
+        console.err('[ERROR] Cannot change file path from unknown tab.')
+        return
+      }
+
+      // If a tab with the same file path already exists we need to close the tab.
+      // The existing tab is overwritten by this tab.
+      const existingTab = tabs.find(t => t.id !== id && isSamePathSync(t.pathname, pathname))
+      if (existingTab) {
+        dispatch('CLOSE_TAB', existingTab)
+      }
+      commit('SET_PATHNAME', { tab, fileInfo })
+    })
+
+    ipcRenderer.on('mt::tab-saved', (e, tabId) => {
+      const { tabs } = state
+      const tab = tabs.find(f => f.id === tabId)
+      if (tab) {
+        Object.assign(tab, { isSaved: true })
+      }
+    })
+
+    ipcRenderer.on('mt::tab-save-failure', (e, tabId, msg) => {
+      notice.notify({
+        title: 'Save failure',
+        message: msg,
+        type: 'error',
+        time: 20000,
+        showConfirm: false
+      })
     })
   },
 
-  LISTEN_FOR_CLOSE ({ commit, state }) {
+  LISTEN_FOR_CLOSE ({ state }) {
     ipcRenderer.on('AGANI::ask-for-close', e => {
-      const unSavedFiles = state.tabs.filter(file => !file.isSaved)
+      const unsavedFiles = state.tabs
+        .filter(file => !file.isSaved)
         .map(file => {
           const { id, filename, pathname, markdown } = file
           const options = getOptionsFromState(file)
           return { id, filename, pathname, markdown, options }
         })
 
-      if (unSavedFiles.length) {
-        ipcRenderer.send('AGANI::response-close-confirm', unSavedFiles)
+      if (unsavedFiles.length) {
+        ipcRenderer.send('mt::close-window-confirm', unsavedFiles)
       } else {
-        ipcRenderer.send('AGANI::close-window')
+        ipcRenderer.send('mt::close-window')
       }
     })
   },
 
-  LISTEN_FOR_SAVE_CLOSE ({ commit, state }) {
-    ipcRenderer.on('AGANI::save-all-response', (e, { err, data }) => {
-      if (!err && Array.isArray(data)) {
-        const toBeClosedTabs = [...state.tabs.filter(f => f.isSaved), ...data]
-        commit('CLOSE_TABS', toBeClosedTabs)
-      }
-    })
-    ipcRenderer.on('AGANI::save-single-response', (e, { err, data }) => {
-      if (!err && Array.isArray(data) && data.length) {
-        commit('CLOSE_TABS', data)
+  LISTEN_FOR_SAVE_CLOSE ({ commit }) {
+    ipcRenderer.on('mt::force-close-tabs-by-id', (e, tabIdList) => {
+      if (Array.isArray(tabIdList) && tabIdList.length) {
+        commit('CLOSE_TABS', tabIdList)
       }
     })
   },
 
-  ASK_FOR_SAVE_ALL ({ commit, state }, isClose) {
-    const unSavedFiles = state.tabs.filter(file => !(file.isSaved && /[^\n]/.test(file.markdown)))
+  ASK_FOR_SAVE_ALL ({ commit, state }, closeTabs) {
+    const { tabs } = state
+    const unsavedFiles = tabs
+      .filter(file => !(file.isSaved && /[^\n]/.test(file.markdown)))
       .map(file => {
         const { id, filename, pathname, markdown } = file
         const options = getOptionsFromState(file)
         return { id, filename, pathname, markdown, options }
       })
-    if (unSavedFiles.length) {
-      const EVENT_NAME = isClose ? 'AGANI::save-close' : 'AGANI::save-all'
-      const isSingle = false
-      ipcRenderer.send(EVENT_NAME, unSavedFiles, isSingle)
-    } else if (isClose) {
-      commit('CLOSE_TABS', state.tabs.map(f => f.id))
+
+    if (closeTabs) {
+      if (unsavedFiles.length) {
+        commit('CLOSE_TABS', tabs.filter(f => f.isSaved).map(f => f.id))
+        ipcRenderer.send('mt::save-and-close-tabs', unsavedFiles)
+      } else {
+        commit('CLOSE_TABS', tabs.map(f => f.id))
+      }
+    } else {
+      ipcRenderer.send('mt::save-tabs', unsavedFiles)
     }
   },
 
@@ -326,39 +468,71 @@ const actions = {
     const { id, pathname, filename } = state.currentFile
     if (typeof filename === 'string' && filename !== newFilename) {
       const newPathname = path.join(path.dirname(pathname), newFilename)
-      ipcRenderer.send('AGANI::rename', { id, pathname, newPathname })
+      ipcRenderer.send('mt::rename', { id, pathname, newPathname })
     }
   },
 
   UPDATE_CURRENT_FILE ({ commit, state, dispatch }, currentFile) {
     commit('SET_CURRENT_FILE', currentFile)
-    dispatch('UPDATE_TEXT_DIRECTION_MENU', state)
     const { tabs } = state
     if (!tabs.some(file => file.id === currentFile.id)) {
       commit('ADD_FILE_TO_TABS', currentFile)
     }
   },
 
-  LISTEN_FOR_OPEN_SINGLE_FILE ({ commit, state, dispatch }) {
-    ipcRenderer.on('AGANI::open-single-file', (e, { markdown, filename, pathname, options }) => {
-      const fileState = getSingleFileState({ markdown, filename, pathname, options })
-      const { lineEnding } = options
+  // This events are only used during window creation.
+  LISTEN_FOR_BOOTSTRAP_WINDOW ({ commit, state, dispatch }) {
+    ipcRenderer.on('mt::bootstrap-editor', (e, config) => {
+      const {
+        addBlankTab,
+        markdownList,
+        lineEnding,
+        sideBarVisibility,
+        tabBarVisibility,
+        sourceCodeModeEnabled
+      } = config
+
       commit('SET_GLOBAL_LINE_ENDING', lineEnding)
-      dispatch('INIT_STATUS', true)
-      dispatch('UPDATE_CURRENT_FILE', fileState)
-      bus.$emit('file-loaded', markdown)
+      dispatch('SEND_INITIALIZED')
       commit('SET_LAYOUT', {
         rightColumn: 'files',
-        showSideBar: false,
-        showTabBar: false
+        showSideBar: !!sideBarVisibility,
+        showTabBar: !!tabBarVisibility
       })
       dispatch('SET_LAYOUT_MENU_ITEM')
+
+      commit('SET_MODE', {
+        type: 'sourceCode',
+        checked: !!sourceCodeModeEnabled
+      })
+
+      if (addBlankTab) {
+        dispatch('NEW_UNTITLED_TAB', {})
+      } else if (markdownList.length) {
+        let isFirst = true
+        for (const markdown of markdownList) {
+          isFirst = false
+          dispatch('NEW_UNTITLED_TAB', { markdown, selected: isFirst })
+        }
+      }
     })
   },
 
+  // Open a new tab, optionally with content.
   LISTEN_FOR_NEW_TAB ({ dispatch }) {
-    ipcRenderer.on('AGANI::new-tab', e => {
-      dispatch('NEW_BLANK_FILE')
+    ipcRenderer.on('mt::open-new-tab', (e, markdownDocument, options = {}, selected = true) => {
+      if (markdownDocument) {
+        // Create tab with content.
+        dispatch('NEW_TAB_WITH_CONTENT', { markdownDocument, options, selected })
+      } else {
+        // Fallback: create a blank tab and always select it
+        dispatch('NEW_UNTITLED_TAB', {})
+      }
+    })
+
+    ipcRenderer.on('mt::new-untitled-tab', (e, selected = true, markdown = '') => {
+      // Create a blank tab
+      dispatch('NEW_UNTITLED_TAB', { markdown, selected })
     })
   },
 
@@ -366,59 +540,146 @@ const actions = {
     ipcRenderer.on('AGANI::close-tab', e => {
       const file = state.currentFile
       if (!hasKeys(file)) return
-      const { isSaved } = file
-      if (isSaved) {
-        dispatch('REMOVE_FILE_IN_TABS', file)
-      } else {
-        dispatch('CLOSE_SINGLE_FILE', file)
-      }
+      dispatch('CLOSE_TAB', file)
     })
   },
 
-  NEW_BLANK_FILE ({ commit, state, dispatch }) {
+  CLOSE_TAB ({ dispatch }, file) {
+    const { isSaved } = file
+    if (isSaved) {
+      dispatch('FORCE_CLOSE_TAB', file)
+    } else {
+      dispatch('CLOSE_UNSAVED_TAB', file)
+    }
+  },
+
+  /**
+   * Create a new untitled tab optional from a markdown string.
+   *
+   * @param {*} context The store context.
+   * @param {{markdown?: string, selected?: boolean}} obj Optional markdown string
+   * and whether the tab should become the selected tab (true if not set).
+   */
+  NEW_UNTITLED_TAB ({ commit, state, dispatch }, { markdown: markdownString, selected }) {
+    // If not set select the tab.
+    if (selected == null) {
+      selected = true
+    }
+
+    dispatch('SHOW_TAB_VIEW', false)
     const { tabs, lineEnding } = state
-    const fileState = getBlankFileState(tabs, lineEnding)
-    const { markdown } = fileState
-    dispatch('UPDATE_CURRENT_FILE', fileState)
-    bus.$emit('file-loaded', markdown)
-  },
+    const fileState = getBlankFileState(tabs, lineEnding, markdownString)
 
-  LISTEN_FOR_OPEN_BLANK_WINDOW ({ commit, state, dispatch }) {
-    ipcRenderer.on('AGANI::open-blank-window', (e, { lineEnding, markdown: source }) => {
-      const { tabs } = state
-      const fileState = getBlankFileState(tabs, lineEnding, source)
-      const { markdown } = fileState
-      commit('SET_GLOBAL_LINE_ENDING', lineEnding)
-      dispatch('INIT_STATUS', true)
+    if (selected) {
+      const { id, markdown } = fileState
       dispatch('UPDATE_CURRENT_FILE', fileState)
-      bus.$emit('file-loaded', markdown)
-      commit('SET_LAYOUT', {
-        rightColumn: 'files',
-        showSideBar: false,
-        showTabBar: false
-      })
-      dispatch('SET_LAYOUT_MENU_ITEM')
-    })
+      bus.$emit('file-loaded', { id, markdown })
+    } else {
+      commit('ADD_FILE_TO_TABS', fileState)
+    }
   },
 
-  // LISTEN_FOR_FILE_CHANGE ({ commit, state }) {
-  //   ipcRenderer.on('AGANI::file-change', (e, { file, filename, pathname }) => {
-  //     const { windowActive } = state
-  //     commit('SET_FILENAME', filename)
-  //     commit('SET_PATHNAME', pathname)
-  //     commit('SET_MARKDOWN', file)
-  //     commit('SET_SAVE_STATUS', true)
-  //     if (!windowActive) {
-  //       bus.$emit('file-loaded', file)
-  //     }
-  //   })
-  // },
+  /**
+   * Create a new tab from the given markdown document.
+   *
+   * @param {*} context The store context.
+   * @param {{markdownDocument: IMarkdownDocumentRaw, selected?: boolean}} obj The markdown document
+   * and optional whether the tab should become the selected tab (true if not set).
+   */
+  NEW_TAB_WITH_CONTENT ({ commit, state, dispatch }, { markdownDocument, options = {}, selected }) {
+    if (!markdownDocument) {
+      console.warn('Cannot create a file tab without a markdown document!')
+      dispatch('NEW_UNTITLED_TAB', {})
+      return
+    }
+
+    // Select the tab if not value is specified.
+    if (typeof selected === 'undefined') {
+      selected = true
+    }
+    // Check if tab already exist and always select existing tab if so.
+    const { currentFile, tabs } = state
+    const { pathname } = markdownDocument
+    const existingTab = tabs.find(t => isSamePathSync(t.pathname, pathname))
+    if (existingTab) {
+      dispatch('UPDATE_CURRENT_FILE', existingTab)
+      return
+    }
+
+    // Replace/close selected untitled empty tab
+    let keepTabBarState = false
+    if (currentFile) {
+      const { isSaved, pathname } = currentFile
+      if (isSaved && !pathname) {
+        keepTabBarState = true
+        dispatch('FORCE_CLOSE_TAB', currentFile)
+      }
+    }
+
+    if (!keepTabBarState) {
+      dispatch('SHOW_TAB_VIEW', false)
+    }
+
+    const { markdown, isMixedLineEndings } = markdownDocument
+    const docState = createDocumentState(Object.assign(markdownDocument, options))
+    const { id, cursor } = docState
+
+    if (selected) {
+      dispatch('UPDATE_CURRENT_FILE', docState)
+      bus.$emit('file-loaded', { id, markdown, cursor })
+    } else {
+      commit('ADD_FILE_TO_TABS', docState)
+    }
+
+    if (isMixedLineEndings) {
+      // TODO(watcher): Show (this) notification(s) per tab.
+      const { filename, lineEnding } = markdownDocument
+      notice.notify({
+        title: 'Line Ending',
+        message: `${filename} has mixed line endings which are automatically normalized to ${lineEnding.toUpperCase()}.`,
+        type: 'primary',
+        time: 20000,
+        showConfirm: false
+      })
+    }
+  },
+
+  SHOW_TAB_VIEW ({ commit, state, dispatch }, always) {
+    const { tabs } = state
+    if (always || tabs.length === 1) {
+      commit('SET_LAYOUT', { showTabBar: true })
+      dispatch('SET_LAYOUT_MENU_ITEM')
+    }
+  },
 
   // Content change from realtime preview editor and source code editor
-  LISTEN_FOR_CONTENT_CHANGE ({ commit, state, rootState }, { markdown, wordCount, cursor, history }) {
+  // WORKAROUND: id is "muya" if changes come from muya and not source code editor! So we don't have to apply the workaround.
+  LISTEN_FOR_CONTENT_CHANGE ({ commit, dispatch, state, rootState }, { id, markdown, wordCount, cursor, history, toc }) {
     const { autoSave } = rootState.preferences
-    const { projectTree } = rootState.project
-    const { pathname, markdown: oldMarkdown, id } = state.currentFile
+    const { id: currentId, pathname, markdown: oldMarkdown } = state.currentFile
+    const { listToc } = state
+
+    if (!id) {
+      throw new Error(`Listen for document change but id was not set!`)
+    } else if (!currentId || state.tabs.length === 0) {
+      // Discard changes - this case should normally not occur.
+      return
+    } else if (id !== 'muya' && currentId !== id) {
+      // WORKAROUND: We commit changes after switching the tab in source code mode.
+      // Update old tab or discard changes
+      for (const tab of state.tabs) {
+        if (tab.id && tab.id === id) {
+          tab.markdown = markdown
+          // set cursor
+          if (cursor) tab.cursor = cursor
+          // set history
+          if (history) tab.history = history
+          break
+        }
+      }
+      return
+    }
+
     const options = getOptionsFromState(state.currentFile)
     commit('SET_MARKDOWN', markdown)
 
@@ -433,18 +694,45 @@ const actions = {
     if (cursor) commit('SET_CURSOR', cursor)
     // set history
     if (history) commit('SET_HISTORY', history)
+    // set toc
+    if (toc && !equal(toc, listToc)) commit('SET_TOC', toc)
 
     // change save status/save to file only when the markdown changed!
     if (markdown !== oldMarkdown) {
-      if (projectTree) {
-        commit('UPDATE_PROJECT_CONTENT', { markdown, pathname })
-      }
+      commit('SET_SAVE_STATUS', false)
       if (pathname && autoSave) {
-        ipcRenderer.send('AGANI::response-file-save', { id, pathname, markdown, options })
-      } else {
-        commit('SET_SAVE_STATUS', false)
+        dispatch('HANDLE_AUTO_SAVE', { id: currentId, pathname, markdown, options })
       }
     }
+  },
+
+  HANDLE_AUTO_SAVE ({ commit, state, rootState }, { id, pathname, markdown, options }) {
+    if (!id || !pathname) {
+      throw new Error('HANDLE_AUTO_SAVE: Invalid tab.')
+    }
+
+    const { tabs } = state
+    const { autoSaveDelay } = rootState.preferences
+
+    if (autoSaveTimers.has(id)) {
+      const timer = autoSaveTimers.get(id)
+      clearTimeout(timer)
+      autoSaveTimers.delete(id)
+    }
+
+    const timer = setTimeout(() => {
+      autoSaveTimers.delete(id)
+
+      // Validate that the tab still exists. A tab is unchanged until successfully saved
+      // or force closed. The user decides whether to discard or save the tab when
+      // gracefully closed. The automatically save event may fire meanwhile.
+      const tab = tabs.find(t => t.id === id)
+      if (tab && !tab.isSaved) {
+        // Tab changed status is set after the file is saved.
+        ipcRenderer.send('AGANI::response-file-save', { id, pathname, markdown, options })
+      }
+    }, autoSaveDelay)
+    autoSaveTimers.set(id, timer)
   },
 
   SELECTION_CHANGE ({ commit }, changes) {
@@ -504,22 +792,6 @@ const actions = {
     })
   },
 
-  LISTEN_FOR_INSERT_IMAGE ({ commit, state }) {
-    ipcRenderer.on('AGANI::INSERT_IMAGE', (e, { filename: imagePath, type }) => {
-      if (!hasKeys(state.currentFile)) return
-      if (type === 'absolute' || type === 'relative') {
-        const { pathname } = state.currentFile
-        if (type === 'relative' && pathname) {
-          imagePath = path.relative(path.dirname(pathname), imagePath)
-        }
-        bus.$emit('insert-image', imagePath)
-      } else {
-        // upload to CM
-        bus.$emit('upload-image')
-      }
-    })
-  },
-
   LINTEN_FOR_SET_LINE_ENDING ({ commit, state }) {
     ipcRenderer.on('AGANI::set-line-ending', (e, { lineEnding, ignoreSaveStatus }) => {
       const { lineEnding: oldLineEnding } = state.currentFile
@@ -533,14 +805,79 @@ const actions = {
     })
   },
 
-  LISTEN_FOR_SET_TEXT_DIRECTION ({ commit, state }) {
-    ipcRenderer.on('AGANI::set-text-direction', (e, { textDirection }) => {
-      const { textDirection: oldTextDirection } = state.currentFile
-      if (textDirection !== oldTextDirection) {
-        commit('SET_TEXT_DIRECTION', textDirection)
+  LISTEN_FOR_FILE_CHANGE ({ commit, state, rootState }) {
+    ipcRenderer.on('AGANI::update-file', (e, { type, change }) => {
+      // TODO: A new "changed" notification from different files overwrite the old notification
+      // and the old notification disappears. I think we should bind the notification to the tab.
+
+      const { tabs } = state
+      const { pathname } = change
+      const tab = tabs.find(t => isSamePathSync(t.pathname, pathname))
+      if (tab) {
+        const { id, isSaved } = tab
+
+        switch (type) {
+          case 'unlink': {
+            commit('SET_SAVE_STATUS_BY_TAB', { tab, status: false })
+            notice.notify({
+              title: 'File Removed on Disk',
+              message: `${pathname} has been removed or moved.`,
+              type: 'warning',
+              time: 0,
+              showConfirm: false
+            })
+            break
+          }
+          case 'add':
+          case 'change': {
+            const { autoSave } = rootState.preferences
+            const { filename } = change.data
+            if (autoSave) {
+              if (autoSaveTimers.has(id)) {
+                const timer = autoSaveTimers.get(id)
+                clearTimeout(timer)
+                autoSaveTimers.delete(id)
+              }
+
+              // Only reload the content if the tab is saved.
+              if (isSaved) {
+                commit('LOAD_CHANGE', change)
+                return
+              }
+            }
+
+            commit('SET_SAVE_STATUS_BY_TAB', { tab, status: false })
+
+            notice.clear()
+            notice.notify({
+              title: 'File Changed on Disk',
+              message: `${filename} has been changed on disk, do you want to reload it?`,
+              showConfirm: true,
+              time: 0
+            })
+              .then(() => {
+                commit('LOAD_CHANGE', change)
+              })
+            break
+          }
+          default:
+            console.error(`LISTEN_FOR_FILE_CHANGE: Invalid type "${type}"`)
+        }
+      } else {
+        console.error(`LISTEN_FOR_FILE_CHANGE: Cannot find tab for path "${pathname}".`)
       }
+    })
+  },
+
+  ASK_FOR_IMAGE_PATH ({ commit }) {
+    return ipcRenderer.sendSync('mt::ask-for-image-path')
+  },
+
+  LISTEN_WINDOW_ZOOM () {
+    ipcRenderer.on('mt::window-zoom', (e, zoomFactor) => {
+      webFrame.setZoomFactor(zoomFactor)
     })
   }
 }
 
-export default { state, getters, mutations, actions }
+export default { state, mutations, actions }

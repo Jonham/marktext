@@ -1,0 +1,49 @@
+{
+  "autoSave": false,
+  "autoSaveDelay": 5000,
+  "titleBarStyle": "custom",
+  "openFilesInNewWindow": false,
+  "openFolderInNewWindow": false,
+  "hideScrollbar": false,
+  "aidou": true,
+  "fileSortBy": "created",
+  "startUpAction": "lastState",
+  "defaultDirectoryToOpen": "",
+  "language": "en",
+
+  "editorFontFamily": "Open Sans",
+  "fontSize": 16,
+  "lineHeight": 1.6,
+  "codeFontSize": 14,
+  "codeFontFamily": "DejaVu Sans Mono",
+  "editorLineWidth": "",
+
+  "autoPairBracket": true,
+  "autoPairMarkdownSyntax": true,
+  "autoPairQuote": true,
+  "endOfLine": "default",
+  "textDirection": "ltr",
+  "hideQuickInsertHint": false,
+  "imageInsertAction": "path",
+
+  "preferLooseListItem": true,
+  "bulletListMarker": "-",
+  "orderListDelimiter": ".",
+  "preferHeadingStyle": "atx",
+  "tabSize": 4,
+  "listIndentation": 1,
+
+  "theme": "light",
+
+  "sideBarVisibility": false,
+  "tabBarVisibility": false,
+  "sourceCodeModeEnabled": false,
+
+  "searchExclusions": [],
+  "searchMaxFileSize": "",
+  "searchIncludeHidden": false,
+  "searchNoIgnore": false,
+  "searchFollowSymlinks": true,
+
+  "watcherUsePolling": false
+}

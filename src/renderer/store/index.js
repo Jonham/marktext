@@ -1,6 +1,6 @@
 import Vue from 'vue'
 import Vuex from 'vuex'
-import { ipcRenderer, remote } from 'electron'
+import { ipcRenderer } from 'electron'
 
 import listenForMain from './listenForMain'
 import project from './project'
@@ -17,9 +17,9 @@ Vue.use(Vuex)
 // global states
 const state = {
   platform: process.platform, // platform of system `darwin` | `win32` | `linux`
-  appVersion: remote.app.getVersion(), // electron version in develop and Mark Text version in production
-  windowActive: true, // weather current window is active or focused
-  init: process.env.NODE_ENV === 'development' // weather Mark Text is inited
+  appVersion: process.versions.MARKTEXT_VERSION_STRING, // Mark Text version string
+  windowActive: true, // whether current window is active or focused
+  init: false // whether Mark Text is initialized
 }
 
 const getters = {}
@@ -28,8 +28,8 @@ const mutations = {
   SET_WIN_STATUS (state, status) {
     state.windowActive = status
   },
-  SET_INIT_STATUS (state, status) {
-    state.init = status
+  SET_INITIALIZED (state) {
+    state.init = true
   }
 }
 
@@ -39,8 +39,9 @@ const actions = {
       commit('SET_WIN_STATUS', status)
     })
   },
-  INIT_STATUS ({ commit }, status) {
-    commit('SET_INIT_STATUS', status)
+
+  SEND_INITIALIZED ({ commit }) {
+    commit('SET_INITIALIZED')
   }
 }
 

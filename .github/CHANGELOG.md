@@ -1,8 +1,138 @@
-### [unreleased]
+## 0.15.1
+
+v0.15.1 is an unplanned release to fix a XSS security vulnerability.
+
+**:beetle:Bug fix**
+
+- **Fixed a XSS security vulnerability when parsing inline HTML (#1390)**
+- Fixed portable mode detection if current working directory don't match the application directory (#1382)
+- Fixed exception in main process due to file watcher (#1284)
+- Added emoji fallback fonts for macOS and Windows too (#1299)
+- Fixed RegEx for recommend title (#1128)
+
+## 0.15.0
+
+**:warning:Breaking Changes:**
+
+- `preference.md` is deprecated and no longer supported. Please use the GUI.
+- Removed portable Windows executable. NSIS installer can now be used to install per-user (without administrator privileges) or machine wide.
+- Added portable zip archive for both x86 and x64 Windows.
+- Changed `viewToggleFullScreen` and `windowCloseWindow` key bindings to `windowToggleFullScreen` and `fileCloseWindow`.
+- Removed `viewChangeFont` key binding.
+- Mark Text is now single-instance application on Linux and Windows too.
 
 **:cactus:Feature**
 
-- Added an error handler
+- feat: add underline format (#946)
+- Added GUI settings (#1028)
+- The cursor jump to the end of format or to the next brackets when press `tab`(#976)
+- Tab drag & drop inside the window
+- add tab scrolling and drag&drop (#953)
+- Support to replace the root folder in a window
+- Second-instance files and directories via command-line are opened in the best window
+- Mark Text can use a default directory that is automatically opened during startup (#711)
+- New CLI flags: `--disable-gpu`, `-n,--new-window` and `--user-data-dir`
+- Find in files use ripgrep as searcher.
+- You can know automatically save your document after a predefined intervall.
+- feat: support prism language alias (#1031)
+- Allow to set editor line width ~~and window zoom~~ (disabled due #1225) (#1092)
+- feat: add click delete url to clipboard when upload image to SMMS (#1173)
+
+**:butterfly:Optimization**
+
+- optimization of cursor, and fix some cursor related issues (#963)
+- Rewrite `select all` when press `CtrlOrCmd + A` (#937)
+- Set the cursor at the end of `#` in header when press arrow down to jump to the next paragraph.(#978)
+- Improved startup time
+- Replace empty untitled tabs (#830)
+- Editor window is shown immediately while loading
+- Adjust titlebar title when using native window to not show a duplicate title
+- Added `Noto Color Emoji` as default emoji fallback font on Linux to display emojis properly.
+- feat: add two event focus and blur of muya (#1039)
+- opti: add katex css only when there is math fomular in export html (#1038)
+- Refactor inline image to support paste/drop image (#1028)
+- opti: insert last paragraph when the last block is table, code block or no-empty paragraph (#1069)
+- Opti: update TOC if needed (#1088)
+- feat: scroll to cursor when switch between tabs (#1089)
+- add: auto save with delay (#1093)
+- Opt-in uploader services and add legal notices (#1113)
+- Add ripgrep as find in files backend (#1086)
+
+**:beetle:Bug fix**
+
+- Fixed some CommonMark failed examples and add test cases (#943)
+- fix: #921 reference link render error (#947)
+- fix: #926 summary element can not be click (#948)
+- fix: #870 list parse error (#964)
+- Fixed some bugs after press `backspace` (#934, #938)
+- Changed `inline math` vertical align to `top` (#977)
+- Prevent to open the same file twice, instead select the existing tab (#878)
+- Fixed some minor filesystem watcher issues
+- Fixed rename filesystem watcher bug which lead to multiple issues because the parent directory was watched after deleting a file on Linux using `rename`
+- Fixed incorrect file content after a watched file was edited externally (#1043)
+- fix: toc content vanish bug (#1021)
+- fix paragraph turn into list bug (#1025)
+- fix: #1018 paste error when the lastblock is html block (#1042)
+- fix: parse inline syntax error (#1072)
+- fix: insert image by image uploader, but can not copy and paste, because it is render the local url (#1070)
+- Fix: #1045 can not select all content in source code mode (#1085)
+- fix: TOC level error (#1087)
+- fix watcher out of range exception (#1095)
+- Opti: image icon style (#1098)
+- delete image triggers muya change (#1125)
+
+**:warning:Breaking Development Changes:**
+
+- Environment variable `MARKTEXT_IS_OFFICIAL_RELEASE` is now `MARKTEXT_IS_STABLE`
+- Renamed npm script `build:dir` to `build:bin`
+
+### 0.14.0
+
+This update **fixes a XSS security vulnerability** when exporting a document.
+
+**:warning:Breaking Changes:**
+
+- Minimum supported macOS version is 10.10 (Yosemite)
+- Remove `lightColor` and `darkColor` in user preference (color change in view menu does not work any, and will remove when add custom theme.)
+- We recommend user not use block element in paragraph, please use block element in html block.
+
+*Not Recommended*
+
+```md
+foo<section>bar</section>zar
+```
+
+*Recommended*
+
+```md
+<div>
+  foo
+  <section>
+    bar
+  </section>
+  zar
+</div>
+```
+
+**:cactus:Feature**
+
+- Improve exception and error handling
+- Support for user-defined titlebar style
+- Support to open files in a new tab instead a new window (#574)
+- Add inline math to format menu and float box (#649)
+- GTK integration (#690)
+- Add recently used directories to recently opened files (#643)
+- Making images display smaller (#659)
+- Open local markdown file when you click on it in another tab (#359)
+- Clicking a link should open it in the browser (#425)
+- Support maxOS `dark mode`, when you change `mode dark or light` in system, Mark Text will change its theme.
+- Add new themes: Ulysses Light, Graphite Light, Material Dark and One Dark.
+- Watch file changed in tabs and show a notice(autoSave is `false`) or update the file(autoSave is `true`)
+- Support input inline Ruby charactors as raw html (#257)
+- Added unsaved tab indicator
+- Add front Menu by click the front menu icon (#875)
+- Support diagram: [flowchart](https://github.com/adrai/flowchart.js), [vega-lite](https://github.com/vega/vega-lite), [mermaid](https://github.com/knsv/mermaid), [sequence](https://github.com/bramp/js-sequence-diagrams) (#914)
+- Support create indent code block in preview mode.(#920)
 
 **:butterfly:Optimization**
 
@@ -10,6 +140,18 @@
 - Separate font and font size for code blocks and source code mode (#373, #467)
 - Opened files and opened directories/files can now be folded (#475, #602)
 - You can now hide the quick insert hint (#621)
+- Adjusted quote inline math color (#592)
+- Fix inline math text align (#593)
+- Added MIME type to Linux desktop file
+- What is the character and number of left-top? (#666)
+- Inserting Codeblock should automatically set cursor into language field (#684)
+- Upstream: prismjs highlighting issues (#709)
+- Improvements for "Open Recent" (#616)
+- Make table of contents in sidebar collapsible (#404)
+- Hide titlebar control buttons in custom titlebar style
+- Corrected hamburger menu offset
+- Optimization of inline html displa, now you can nest other inline syntax in inline html(#849)
+- Use CmdOrCtrl + C/V to copy rich text to `word`(Windows) or `page`(macOS) (#885)
 
 **:beetle:Bug fix**
 
@@ -21,6 +163,51 @@
 - Allow pasting text into the code block language text-box (#553)
 - Fixed a crash when opening a directory with an unknown file extension
 - Fixed an issue with `Save all` and `Delete all` buttons in the side bar
+- Fixed exception when exporting a code block (#591)
+- Fixed recommended filename
+- Fixed multiple sidebar issues
+- Fixed wrong font and theme when opening a directory (#696)
+- Switching to another tab will now work in source-code mode too (#606)
+- Fixed forced line break in a list is display wrong. (#672)
+- Relative images are broken after exporting (#678)
+- Unable to paste text in table cell(#670)
+- Wrong padding when copy loose list to tight list(#706)
+- Display Autocompletion in inline math(#673)
+- Unable to export a document when the language identifier is undefined(#591)
+- Incorrect rendering of pipe in code block within table(#660)
+- Using extended code identifiers breaks code blocks (#697)
+- Renderer exception when pasting text with new line(s) into a heading (#671)
+- Fatal error when a directory is removed (#661)
+- Wrong font and theme when opening file/directory (#696)
+- Automatically wrap code block lines when printing or exporting as PDF (#710)
+- Can't change tab in source code mode (#606)
+- Minor checkbox list bug (#576)
+- A hard line break followed by a list doesn't work in preview mode (#708)
+- Ctrl + X (#622)
+- Exception when removing a code block in a specific case (#568)
+- List items are always copied as loose list (#705)
+- Runtime bug when insert order list by quick insert (#760)
+- Image inside HTML is not loaded (#754)
+- No space around copy-pasted links (#752)
+- Relative image reference in HTML is broken (#782)
+- Selection cannot be cancelled by up / down keys (#630)
+- Cannot create table while in typewriter mode (#679)
+- Emojis don't work properly (#769)
+- Fixed multiple parser issues (update marked.js to v0.6.1)
+- Fixed nest math block issue (#586)
+- Can't make a comma-separated list of dollar ($) amounts (#740)
+- Fixed [...] is displayed in gray and orange (#432)
+- Fixed an issue that relative images are not loaded after closing a tab
+- Add symbolic link support
+- Fixed bug when combine pre list and next list into one when inline update #707
+- Fix renderer error when selection in sidebar (#625)
+- Fixed list parse error [more info](https://github.com/marktext/marktext/issues/831#issuecomment-477719256)
+- Fixed source code mode tab switching
+- Fixed source code mode to preview switching
+- Mark Text didn't remove highlight when I delete the markdown symbol like * or `. (#893)
+- After delete ``` at the beginning to paragraph by backspace, then type other text foo, the color will be strange, if you type 1. bar. error happened. (#892)
+- Fix highlight error in code block (#545 #890)
+- Fix files sorting in folder (#438)
 
 ### 0.13.65
 
